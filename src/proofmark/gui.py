@@ -24,7 +24,11 @@ import socketserver
 import webbrowser
 from typing import Any
 
+import time
+
 from .charts import equity_chart, underwater_chart
+from .live import alerts, read_state
+from .livepage import LIVE_PAGE
 from .page import PAGE
 from .guards import Severity, check
 from .metrics import summarise
@@ -88,7 +92,68 @@ def _analyse(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _live_payload(path: str | None) -> dict[str, Any]:
+    """Everything the live page needs, in one poll.
+
+    The guards run over the live equity curve too, which is the point of
+    putting this in proofmark rather than in a dashboard. A strategy that
+    drifts into a 100% win rate or a zero drawdown in production is showing
+    you the same impossibility a backtest would, and it is showing you with
+    real money on the table.
+    """
+    if not path:
+        return {"present": False, "hint": "Started without --state, so there is nothing to watch."}
+
+    state = read_state(path)
+    if state is None:
+        return {
+            "present": False,
+            "hint": f"No readable state file at {path}. Your bot writes it with "
+                    "proofmark.live.write_state().",
+        }
+
+    verdict_findings: list[dict[str, str]] = []
+    chart = ""
+    if len(state.equity) >= 2:
+        chart = equity_chart(state.equity)
+        try:
+            live = check(summarise(state.equity, []), delisted_included=True)
+            verdict_findings = [
+                {"severity": f.severity.value, "detail": f.detail, "why": f.why}
+                for f in live.fatal
+            ]
+        except ValueError:
+            verdict_findings = []
+
+    return {
+        "present": True,
+        "mode": state.mode,
+        "age": state.age,
+        "stale": state.stale,
+        "alerts": [list(a) for a in alerts(state)],
+        "verdict": verdict_findings,
+        "chart": chart,
+        "positions": [
+            {
+                "symbol": p.symbol, "quantity": p.quantity, "entry": p.entry,
+                "current": p.current, "stop": p.stop, "unrealised": p.unrealised,
+            }
+            for p in state.positions
+        ],
+        "decisions": [
+            {
+                "clock": time.strftime("%H:%M:%S", time.localtime(d.time)) if d.time else "",
+                "symbol": d.symbol, "action": d.action, "reason": d.reason,
+            }
+            # Newest first: the last thing it decided is the thing you came for.
+            for d in reversed(state.decisions)
+        ],
+    }
+
+
 class _Handler(http.server.BaseHTTPRequestHandler):
+    state_path: str | None = None
+
     def _send(self, code: int, body: bytes, content_type: str) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
@@ -99,10 +164,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path not in ("/", "/index.html"):
+        if self.path in ("/", "/index.html"):
+            self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif self.path == "/live":
+            self._send(200, LIVE_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif self.path == "/state":
+            payload = json.dumps(_live_payload(self.state_path)).encode("utf-8")
+            self._send(200, payload, "application/json")
+        else:
             self._send(404, b"not found", "text/plain")
-            return
-        self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path != "/check":
@@ -124,7 +194,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         """Silence the per-request logging. The terminal is not the product."""
 
 
-def serve(port: int = 8765, open_browser: bool = True, host: str = "127.0.0.1") -> None:
+def serve(port: int = 8765, open_browser: bool = True, host: str = "127.0.0.1",
+          state_path: str | None = None) -> None:
     """Start the local page.
 
     ``host`` defaults to loopback and should usually stay there. The page has
@@ -134,10 +205,14 @@ def serve(port: int = 8765, open_browser: bool = True, host: str = "127.0.0.1") 
     complains when you use it.
     """
     loopback = host in ("127.0.0.1", "localhost", "::1")
+    _Handler.state_path = state_path
 
     with socketserver.TCPServer((host, port), _Handler) as httpd:
         if loopback:
             print(f"proofmark is running at http://{host}:{port}/")
+            if state_path:
+                print(f"          live view at http://{host}:{port}/live")
+                print(f"          watching {state_path}")
             print("Everything stays on this machine. Press Ctrl+C to stop.")
         else:
             print(f"proofmark is listening on {host}:{port}")

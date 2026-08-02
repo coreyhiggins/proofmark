@@ -87,6 +87,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     gui = sub.add_parser("gui", help="open the local page in a browser")
     gui.add_argument("--port", type=int, default=8765)
     gui.add_argument("--no-browser", action="store_true")
+    gui.add_argument("--state", default=None,
+                     help="path to a state file your bot writes, to enable the live view at /live")
     gui.add_argument("--host", default="127.0.0.1",
                      help="interface to bind. Leave this alone unless you are in a "
                           "container: the page has no password.")
@@ -107,7 +109,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "gui":
         from .gui import serve
-        serve(port=args.port, open_browser=not args.no_browser, host=args.host)
+        serve(port=args.port, open_browser=not args.no_browser, host=args.host,
+              state_path=args.state)
         return 0
 
     if args.command != "check":

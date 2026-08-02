@@ -424,3 +424,92 @@ def test_charts_refuse_to_draw_nothing():
 def test_buy_and_hold_tracks_the_close():
     bars = [{"close": 100.0}, {"close": 110.0}, {"close": 90.0}]
     assert buy_and_hold(bars, starting=1000.0) == [1000.0, 1100.0, 900.0]
+
+
+# ----------------------------------------------------------------- live ----
+
+import time as _time
+
+from proofmark.gui import _live_payload
+from proofmark.live import (
+    STALE_AFTER_SECONDS, Decision, Position, alerts, read_state, write_state,
+)
+
+
+def _state_file(tmp_path, **kw):
+    path = tmp_path / "state.json"
+    write_state(path, **kw)
+    return path
+
+
+def test_state_survives_a_round_trip(tmp_path):
+    path = _state_file(
+        tmp_path, mode="paper", equity=[100.0, 101.0],
+        positions=[Position("AAPL", 10, 150.0, 154.0, stop=145.0)],
+        decisions=[Decision(_time.time(), "AAPL", "buy", "all rules passed")],
+    )
+    s = read_state(path)
+    assert s.mode == "paper"
+    assert s.positions[0].symbol == "AAPL"
+    assert s.positions[0].unrealised == pytest.approx(40.0)
+    assert s.decisions[0].reason == "all rules passed"
+
+
+def test_a_half_written_file_reads_as_nothing(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text('{"mode":"paper","equity":[1,2', encoding="utf-8")
+    # A viewer that crashes on a torn write reports the wrong problem.
+    assert read_state(path) is None
+    assert read_state(tmp_path / "absent.json") is None
+
+
+def test_a_position_without_a_stop_is_the_headline_alert(tmp_path):
+    path = _state_file(tmp_path, positions=[Position("MSFT", 5, 400.0, 392.0)])
+    assert "unprotected" in [tag for tag, _ in alerts(read_state(path))]
+
+
+def test_a_silent_bot_is_reported_as_silent(tmp_path):
+    path = _state_file(tmp_path, equity=[100.0, 101.0])
+    state = read_state(path)
+    state.updated = _time.time() - (STALE_AFTER_SECONDS + 60)
+    assert state.stale
+    assert "silent" in [tag for tag, _ in alerts(state)]
+
+
+def test_real_money_is_always_called_out(tmp_path):
+    path = _state_file(tmp_path, mode="live", equity=[100.0, 101.0])
+    assert "live-money" in [tag for tag, _ in alerts(read_state(path))]
+
+
+def test_a_healthy_paper_bot_raises_nothing(tmp_path):
+    path = _state_file(
+        tmp_path, mode="paper", equity=[100.0, 99.0, 101.0],
+        positions=[Position("AAPL", 1, 10.0, 11.0, stop=9.0)],
+    )
+    assert alerts(read_state(path)) == []
+
+
+def test_the_guards_run_over_the_live_curve_too(tmp_path):
+    # A live strategy that never goes down is showing the same impossibility a
+    # backtest would, with real money on the table.
+    rising = [1000.0 * (1.004 ** i) for i in range(60)]
+    path = _state_file(tmp_path, equity=rising)
+    payload = _live_payload(str(path))
+    assert payload["present"] is True
+    assert payload["verdict"], "the guards said nothing about an impossible live curve"
+
+
+def test_no_state_path_explains_itself_rather_than_erroring():
+    out = _live_payload(None)
+    assert out["present"] is False
+    assert "--state" in out["hint"]
+
+
+def test_decisions_come_back_newest_first(tmp_path):
+    now = _time.time()
+    path = _state_file(tmp_path, decisions=[
+        Decision(now - 300, "OLD", "reject", "first"),
+        Decision(now - 10, "NEW", "buy", "second"),
+    ])
+    order = [d["symbol"] for d in _live_payload(str(path))["decisions"]]
+    assert order == ["NEW", "OLD"]
