@@ -73,6 +73,20 @@ PAGE = """<!doctype html>
 
   /* ---------------------------------------------------------- masthead -- */
   .top { display:flex; align-items:center; gap:.85rem; margin-bottom:2.6rem; }
+  .nav { margin-left:auto; display:flex; gap:.35rem; flex-wrap:wrap; }
+  .nav a, .nav .here {
+    font:600 .78rem/1 var(--sans); padding:.5rem .75rem; border-radius:8px;
+    text-decoration:none; white-space:nowrap;
+    transition:background .18s ease, color .18s ease;
+  }
+  .nav .here { color:var(--ink); background:var(--raised); }
+  .nav a { color:var(--soft); }
+  .nav a:hover { color:var(--ink); background:var(--raised); }
+  .nav a:focus-visible {
+    outline:none; color:var(--ink);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--brass) 32%, transparent);
+  }
+  @media (max-width:30rem) { .nav { width:100%; margin:.6rem 0 0; } }
   .stamp { width:38px; height:38px; flex:0 0 38px; }
   .top h1 { margin:0; font:600 1.05rem/1 var(--sans); letter-spacing:.2em; text-transform:uppercase; }
   .top p { margin:.25rem 0 0; font-size:.86rem; color:var(--soft); }
@@ -287,6 +301,13 @@ PAGE = """<!doctype html>
       <h1>Proofmark</h1>
       <p>Checks whether a trading result is safe to believe</p>
     </div>
+    <!-- Without this the live view is unreachable from the app: it has always
+         lived at /live and nothing has ever linked to it. A feature you cannot
+         navigate to has not shipped. -->
+    <nav class="nav">
+      <span class="here">Check a result</span>
+      <a href="/live">Watch a live run</a>
+    </nav>
   </header>
 
   <p class="hero">Most backtests look better than the strategy. <b>This tells you when yours does.</b></p>

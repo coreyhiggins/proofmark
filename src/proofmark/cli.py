@@ -219,13 +219,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "run":
         return _run_live(args)
 
-    # If a run is already going and nobody passed --state, watch it anyway.
-    # Requiring the path means the live view is empty for the person who
-    # followed the two obvious commands in order, which reads as broken.
-    state = args.state if args.command in ("app", "gui") else None
-    if args.command in ("app", "gui") and not state:
-        default = default_state_path()
-        state = str(default) if default.exists() else None
+    # Always resolve a state path for the window, even when the file does not
+    # exist yet. Without one the live view has nowhere to write, so its start
+    # button has to be disabled, and a new user meets a dead control on the
+    # first screen they open.
+    state = None
+    if args.command in ("app", "gui"):
+        state = args.state or str(default_state_path())
 
     if args.command == "app":
         from .desktop import run_window

@@ -35,7 +35,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install -e ".[desktop]" pyinstaller
+      # crypto goes in too. Without ccxt bundled, the Start button in the
+      # packaged app fails on a missing import, and the packaged app is the
+      # only route a Windows user has: it is windowed, so there is no console
+      # to pip install into.
+      - run: pip install -e ".[desktop,crypto]" pyinstaller
 
       - name: build
         run: >
@@ -46,6 +50,7 @@ jobs:
           --clean
           --noconfirm
           --collect-all webview
+          --collect-all ccxt
 
       # A binary that does not start is worse than no binary, and the failure
       # mode is silent for someone who double-clicks it. Prove it runs.

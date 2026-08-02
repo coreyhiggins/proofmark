@@ -69,7 +69,18 @@ def start_server(port: int, state_path: str | None = None, timeout: float = 10.0
 
 
 def run_window(state_path: str | None = None, port: int | None = None) -> int:
-    """Open proofmark in its own window. Returns a process exit code."""
+    """Open proofmark in its own window. Returns a process exit code.
+
+    Falls back to the standard state path when given none. The packaged .exe is
+    launched by double-click and so never receives arguments; without this it
+    would open with a live view permanently unable to start anything, which is
+    every Windows user's first impression of it.
+    """
+    if state_path is None:
+        from .cli import default_state_path
+
+        state_path = str(default_state_path())
+
     port = port or free_port()
     url = f"http://127.0.0.1:{port}/"
 

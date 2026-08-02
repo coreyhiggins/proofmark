@@ -21,6 +21,7 @@ from __future__ import annotations
 import http.server
 import json
 import socketserver
+import threading
 import webbrowser
 from typing import Any
 
@@ -185,15 +186,32 @@ def _live_payload(path: str | None) -> dict[str, Any]:
     you the same impossibility a backtest would, and it is showing you with
     real money on the table.
     """
+    from .strategies import BUILTIN
+
+    # Sent on every poll, whether or not there is anything to watch, because
+    # the start form has to be reachable from the empty state. That empty state
+    # is where every new user begins.
+    control: dict[str, Any] = {
+        "running": SESSION.running,
+        "canStart": bool(path),
+        "settings": SESSION.settings,
+        "error": SESSION.error,
+        "strategies": [
+            {"name": s.name, "summary": s.summary} for s in
+            sorted(BUILTIN.values(), key=lambda s: s.name)
+        ],
+    }
+
     if not path:
-        return {"present": False, "hint": "Started without --state, so there is nothing to watch."}
+        return {"present": False, "control": control,
+                "hint": "Started without somewhere to write results."}
 
     state = read_state(path)
     if state is None:
         return {
             "present": False,
-            "hint": f"No readable state file at {path}. Your bot writes it with "
-                    "proofmark.live.write_state().",
+            "control": control,
+            "hint": "Nothing has run yet.",
         }
 
     verdict_findings: list[dict[str, str]] = []
@@ -232,6 +250,7 @@ def _live_payload(path: str | None) -> dict[str, Any]:
 
     return {
         "present": True,
+        "control": control,
         "mode": state.mode,
         "age": state.age,
         "stale": state.stale,
@@ -265,6 +284,88 @@ def _live_payload(path: str | None) -> dict[str, Any]:
     }
 
 
+class _Session:
+    """The one paper run this process is allowed to have going.
+
+    The packaged app is built ``--windowed``, so it has no console: a person
+    who installed the .exe cannot type ``proofmark run`` and see anything at
+    all. Starting the run from the page is not a convenience, it is the only
+    route that exists for most of the people this is for.
+
+    One run at a time, on purpose. Two runs writing the same state file is a
+    display that flickers between two strategies, and the second most confusing
+    thing a live view can do is show numbers that are each individually true.
+    """
+
+    def __init__(self) -> None:
+        self.thread: threading.Thread | None = None
+        self.stop = threading.Event()
+        self.settings: dict[str, Any] = {}
+        self.error = ""
+
+    @property
+    def running(self) -> bool:
+        return self.thread is not None and self.thread.is_alive()
+
+    def start(self, state_path: str, settings: dict[str, Any]) -> str:
+        if self.running:
+            return "A run is already going. Stop it before starting another."
+
+        from .strategies import BUILTIN
+
+        symbol = str(settings.get("symbol") or "").strip().upper()
+        if not symbol:
+            return "Give it a symbol, for example BTC/USDT."
+        strategy = str(settings.get("strategy") or "")
+        if strategy not in BUILTIN:
+            return f"No strategy called {strategy!r}."
+
+        try:
+            cash = float(settings.get("cash") or 10_000)
+        except (TypeError, ValueError):
+            return "Starting balance has to be a number."
+        if cash <= 0:
+            return "Starting balance has to be above zero."
+
+        self.error = ""
+        self.stop.clear()
+        self.settings = {
+            "venue": str(settings.get("venue") or "okx"),
+            "symbol": symbol,
+            "timeframe": str(settings.get("timeframe") or "1h"),
+            "strategy": strategy,
+            "starting_cash": cash,
+        }
+        self.thread = threading.Thread(
+            target=self._loop, args=(state_path,), daemon=True, name="proofmark-run",
+        )
+        self.thread.start()
+        return ""
+
+    def _loop(self, state_path: str) -> None:
+        from .runner import DEFAULT_POLL_SECONDS, run_once
+
+        while not self.stop.is_set():
+            try:
+                run_once(state_path=state_path, **self.settings)
+                self.error = ""
+            except Exception as err:  # noqa: BLE001
+                # Surfaced on the page rather than raised. A background thread
+                # that dies silently leaves a live view that simply stops
+                # updating, which reads as a dead exchange rather than as the
+                # typo in the symbol that it usually is.
+                self.error = str(err)
+            # Interruptible sleep, so stopping is immediate rather than up to a
+            # poll interval away.
+            self.stop.wait(DEFAULT_POLL_SECONDS)
+
+    def halt(self) -> None:
+        self.stop.set()
+
+
+SESSION = _Session()
+
+
 class _Handler(http.server.BaseHTTPRequestHandler):
     state_path: str | None = None
 
@@ -289,6 +390,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:  # noqa: N802
+        if self.path in ("/run", "/stop"):
+            self._control()
+            return
+
         if self.path not in ("/check", "/compare"):
             self._send(404, b"not found", "text/plain")
             return
@@ -303,6 +408,28 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             result = {"error": f"Could not read those numbers: {err}"}
 
         self._send(200, json.dumps(result).encode("utf-8"), "application/json")
+
+    def _control(self) -> None:
+        """Start or stop the paper run. Loopback only, and paper only."""
+        if self.path == "/stop":
+            SESSION.halt()
+            self._send(200, json.dumps({"ok": True}).encode("utf-8"), "application/json")
+            return
+
+        if not self.state_path:
+            self._send(200, json.dumps({
+                "error": "This window was started without somewhere to write results."
+            }).encode("utf-8"), "application/json")
+            return
+
+        length = min(int(self.headers.get("Content-Length") or 0), 64 * 1024)
+        try:
+            settings = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            settings = {}
+
+        message = SESSION.start(self.state_path, settings if isinstance(settings, dict) else {})
+        self._send(200, json.dumps({"error": message}).encode("utf-8"), "application/json")
 
     def log_message(self, *args: Any) -> None:
         """Silence the per-request logging. The terminal is not the product."""

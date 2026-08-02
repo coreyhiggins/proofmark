@@ -66,15 +66,33 @@ LIVE_PAGE = """<!doctype html>
   .top h1 { margin:0; font:600 1.05rem/1 var(--sans); letter-spacing:.2em; text-transform:uppercase; }
   .top p { margin:.25rem 0 0; font-size:.85rem; color:var(--soft); }
 
-  /* The heartbeat. Position it where the eye lands first, because "is it
-     still running" outranks every number on the page. */
+  .nav { margin-left:auto; display:flex; gap:.35rem; flex-wrap:wrap; }
+  .nav a, .nav .here {
+    font:600 .78rem/1 var(--sans); padding:.5rem .75rem; border-radius:8px;
+    text-decoration:none; white-space:nowrap;
+    transition:background .18s ease, color .18s ease;
+  }
+  .nav .here { color:var(--ink); background:var(--raised); }
+  .nav a { color:var(--soft); }
+  .nav a:hover { color:var(--ink); background:var(--raised); }
+  .nav a:focus-visible {
+    outline:none; color:var(--ink);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--brass) 32%, transparent);
+  }
+
+  /* The heartbeat, on its own line under the header. "Is it still running"
+     outranks every number on the page, so it does not compete with the nav
+     for the same corner. */
   .pulse {
-    margin-left:auto; display:flex; align-items:center; gap:.55rem;
+    display:flex; align-items:center; gap:.55rem; margin:0 0 1.2rem;
     font:600 .7rem/1 var(--sans); letter-spacing:.11em; text-transform:uppercase;
     color:var(--soft); white-space:nowrap;
   }
   .dot { width:8px; height:8px; border-radius:50%; background:var(--pass); flex:none; }
   .dot.stale { background:var(--fail); }
+  /* Never started is not the same as stopped writing. A red light on a page
+     nobody has used yet reports a fault that has not happened. */
+  .dot.idle { background:var(--faint); }
   @media (prefers-reduced-motion:no-preference) {
     .dot:not(.stale) { animation:beat 2.4s ease-in-out infinite; }
     @keyframes beat {
@@ -155,6 +173,36 @@ LIVE_PAGE = """<!doctype html>
   .act.buy { color:var(--pass); }
   .act.sell { color:var(--fail); }
 
+  /* The start form. This is the only way most people will ever begin a run:
+     the packaged app is windowed, so it has no console to type a command in. */
+  .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));
+            gap:.8rem; margin:.9rem 0 0; }
+  label.lbl { display:block; font:600 .78rem/1.4 var(--sans); margin-bottom:.3rem; }
+  input, select {
+    width:100%; font:500 .88rem var(--mono); color:var(--ink); background:var(--raised);
+    border:1px solid var(--line); border-radius:8px; padding:.55rem .65rem;
+    transition:border-color .18s ease, box-shadow .18s ease;
+  }
+  input:focus-visible, select:focus-visible {
+    outline:none; border-color:var(--brass);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--brass) 22%, transparent);
+  }
+  .actions { display:flex; gap:.6rem; margin-top:1.1rem; flex-wrap:wrap; }
+  button {
+    font:600 .88rem var(--sans); border-radius:9px; padding:.62rem 1.15rem;
+    border:1px solid transparent; cursor:pointer;
+    transition:transform .12s cubic-bezier(.3,.8,.4,1), filter .18s ease, background .18s ease;
+  }
+  button:active { transform:translateY(1px) scale(.99); }
+  button:focus-visible { outline:none; box-shadow:0 0 0 3px color-mix(in srgb, var(--brass) 32%, transparent); }
+  button:disabled { opacity:.45; cursor:default; transform:none; }
+  button.go { background:var(--brass); color:#12100E; }
+  button.go:hover:not(:disabled) { filter:brightness(1.08); }
+  button.ghost { background:transparent; color:var(--ink); border-color:var(--line); }
+  button.ghost:hover:not(:disabled) { border-color:var(--soft); }
+  .hint { margin:.35rem 0 0; font-size:.78rem; color:var(--faint); line-height:1.5; }
+  .err { color:var(--fail); font-size:.85rem; margin:.8rem 0 0; }
+
   .empty { color:var(--soft); font-size:.88rem; margin:0; }
   .empty code { font:500 .82em/1 var(--mono); background:var(--raised);
                 padding:.15em .4em; border-radius:4px; }
@@ -177,9 +225,14 @@ LIVE_PAGE = """<!doctype html>
       <h1>Live</h1>
       <p id="what">connecting</p>
     </div>
-    <div class="pulse"><span class="dot" id="dot"></span><span id="age">&nbsp;</span></div>
+    <nav class="nav">
+      <a href="/">Check a result</a>
+      <span class="here">Watch a live run</span>
+    </nav>
   </header>
+  <div class="pulse"><span class="dot" id="dot"></span><span id="age">&nbsp;</span></div>
 
+  <div id="control"></div>
   <div id="out" aria-live="polite"></div>
 
   <p class="foot">Nothing on this page places, closes or overrides an order. The
@@ -196,19 +249,95 @@ function ago(seconds) {
   return Math.round(seconds / 3600) + 'h ago';
 }
 
+// Rebuilt only when the run's status changes. Redrawing a form every five
+// seconds would wipe whatever the person was in the middle of typing.
+let controlKey = null;
+
+function renderControl(c, hasRun) {
+  const key = JSON.stringify([c.running, c.canStart, c.error, hasRun]);
+  if (key === controlKey) return;
+  controlKey = key;
+
+  const s = c.settings || {};
+  const box = $('control');
+
+  if (c.running) {
+    box.innerHTML = '<div class="card"><h2>Paper run in progress</h2>'
+      + '<p class="cap">' + esc(s.symbol || '') + ' ' + esc(s.timeframe || '')
+      + ' on ' + esc(s.venue || '') + ', using ' + esc(s.strategy || '')
+      + '. Checking for a new closed bar every minute.</p>'
+      + (c.error ? '<p class="err">Last cycle failed: ' + esc(c.error) + '</p>' : '')
+      + '<div class="actions"><button class="ghost" id="stop">Stop</button></div></div>';
+    $('stop').onclick = async () => {
+      $('stop').disabled = true;
+      await fetch('/stop', {method: 'POST'});
+      controlKey = null;
+      tick();
+    };
+    return;
+  }
+
+  const options = (c.strategies || []).map(x =>
+    '<option value="' + esc(x.name) + '"' + (x.name === 'ema-cross' ? ' selected' : '')
+    + '>' + esc(x.name) + '</option>').join('');
+
+  box.innerHTML = '<div class="card"><h2>' + (hasRun ? 'Start another run' : 'Start a paper run')
+    + '</h2><p class="cap">Real prices, imaginary money. No key that could place '
+    + 'an order is ever used, and there is no setting here that changes that.</p>'
+    + '<div class="fields">'
+    + '<div><label class="lbl" for="symbol">Symbol</label>'
+    + '<input id="symbol" value="' + esc(s.symbol || 'BTC/USDT') + '"></div>'
+    + '<div><label class="lbl" for="venue">Exchange</label>'
+    + '<select id="venue"><option value="okx">okx</option>'
+    + '<option value="bitget">bitget</option></select></div>'
+    + '<div><label class="lbl" for="timeframe">Bar size</label>'
+    + '<select id="timeframe"><option value="15m">15m</option>'
+    + '<option value="1h" selected>1h</option><option value="4h">4h</option>'
+    + '<option value="1d">1d</option></select></div>'
+    + '<div><label class="lbl" for="strategy">Rules</label>'
+    + '<select id="strategy">' + options + '</select></div>'
+    + '<div><label class="lbl" for="cash">Starting balance</label>'
+    + '<input id="cash" value="10000"></div>'
+    + '</div>'
+    + '<p class="hint">Fees of 0.1% and slippage of 0.05% come off both sides of '
+    + 'every fill. Decisions are made on a closed bar and filled at the next bar\\'s '
+    + 'open, so nothing trades on a price it has already seen.</p>'
+    + '<div class="actions"><button class="go" id="start">Start</button></div>'
+    + '<p class="err" id="startErr" hidden></p></div>';
+
+  $('start').onclick = async () => {
+    const btn = $('start'), err = $('startErr');
+    btn.disabled = true; err.hidden = true;
+    try {
+      const res = await fetch('/run', {method: 'POST', body: JSON.stringify({
+        symbol: $('symbol').value, venue: $('venue').value,
+        timeframe: $('timeframe').value, strategy: $('strategy').value,
+        cash: Number($('cash').value)
+      })});
+      const out = await res.json();
+      if (out.error) { err.textContent = out.error; err.hidden = false; btn.disabled = false; return; }
+      controlKey = null;
+      setTimeout(tick, 400);
+    } catch (e) {
+      err.textContent = 'Could not reach the local server.'; err.hidden = false;
+      btn.disabled = false;
+    }
+  };
+}
+
 function render(d) {
   const out = $('out');
+  renderControl(d.control || {}, d.present);
 
   if (!d.present) {
-    $('what').textContent = 'not watching anything';
-    $('dot').className = 'dot stale';
-    $('age').textContent = 'idle';
-    out.innerHTML = '<div class="card"><h2>Nothing to watch yet</h2>'
-      + '<p class="empty">' + esc(d.hint || '') + '</p>'
-      + '<p class="empty" style="margin-top:.9rem">Start a paper run against a real '
-      + 'market with <code>proofmark run --symbol BTC/USDT --strategy ema-cross</code>, '
-      + 'or point your own bot here by calling '
-      + '<code>proofmark.live.write_state()</code> at the end of each cycle.</p></div>';
+    const starting = (d.control || {}).running;
+    $('what').textContent = starting ? 'starting' : 'nothing running';
+    $('dot').className = starting ? 'dot' : 'dot idle';
+    $('age').textContent = starting ? 'waiting for the first cycle' : 'idle';
+    out.innerHTML = '<div class="card"><h2>No results yet</h2>'
+      + '<p class="empty">' + esc(d.hint || '') + ' Start a run above, or point your '
+      + 'own bot here by calling <code>proofmark.live.write_state()</code> at the '
+      + 'end of each cycle.</p></div>';
     return;
   }
 

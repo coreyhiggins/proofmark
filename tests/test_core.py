@@ -503,7 +503,31 @@ def test_the_guards_run_over_the_live_curve_too(tmp_path):
 def test_no_state_path_explains_itself_rather_than_erroring():
     out = _live_payload(None)
     assert out["present"] is False
-    assert "--state" in out["hint"]
+    assert out["hint"]
+    # With nowhere to write, the start button has to be off rather than
+    # offering an action that cannot possibly work.
+    assert out["control"]["canStart"] is False
+
+
+def test_the_start_form_is_offered_before_anything_has_ever_run(tmp_path):
+    """The empty state is where every new user begins, and the packaged app is
+    windowed with no console to type a command into, so the control has to
+    reach them there or it reaches them nowhere."""
+    out = _live_payload(str(tmp_path / "not-written-yet.json"))
+    assert out["present"] is False
+    assert out["control"]["canStart"] is True
+    assert out["control"]["running"] is False
+    assert any(s["name"] == "ema-cross" for s in out["control"]["strategies"])
+
+
+def test_a_run_will_not_start_with_nonsense_settings():
+    from proofmark.gui import SESSION
+
+    assert "symbol" in SESSION.start("x.json", {"symbol": "", "strategy": "ema-cross"})
+    assert "strategy" in SESSION.start("x.json", {"symbol": "BTC/USDT", "strategy": "nope"})
+    assert "above zero" in SESSION.start(
+        "x.json", {"symbol": "BTC/USDT", "strategy": "ema-cross", "cash": -5})
+    assert SESSION.running is False
 
 
 def test_decisions_come_back_newest_first(tmp_path):
