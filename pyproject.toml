@@ -1,0 +1,41 @@
+[project]
+name = "proofmark"
+version = "0.1.0"
+description = "A backtest engine whose defaults make self-deception expensive."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Corey Higgins" }]
+keywords = ["backtesting", "trading", "quant", "overfitting", "lookahead-bias"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Financial and Insurance Industry",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Office/Business :: Financial :: Investment",
+]
+
+# The core has no dependencies at all, on purpose. Guards, metrics and the
+# lookahead detector run on plain sequences of mappings, so a project can
+# import them next to whatever engine it already uses without inheriting a
+# dependency tree. Exchange and data adapters live behind extras.
+dependencies = []
+
+[project.optional-dependencies]
+crypto = ["ccxt>=4.4"]
+equities = ["alpaca-py>=0.30"]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Homepage = "https://github.com/coreyhiggins/proofmark"
+Issues = "https://github.com/coreyhiggins/proofmark/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/proofmark"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

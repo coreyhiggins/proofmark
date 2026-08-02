@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Market data is large, licensed, and not ours to redistribute.
+data/
+*.csv
+*.parquet
+
+# Never. Trade-only keys still move money.
+.env
+*.key
+secrets.*
