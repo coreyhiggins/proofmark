@@ -337,3 +337,47 @@ def test_gui_returns_findings_with_fatal_first():
     assert out["reportable"] is False
     assert out["findings"][0]["severity"] == "fatal"
     assert any(k == "Sortino" and v == "undefined" for k, v in out["metrics"])
+
+
+# --------------------------------------------------------------- venues ----
+
+from proofmark.data import from_bars
+from proofmark.venues import VENUES, describe, venue
+
+
+def test_every_venue_states_its_sandbox_truthfully():
+    for v in VENUES.values():
+        assert v.sandbox in ("none", "synthetic", "production-data", "broker-paper")
+        assert v.sandbox_note, f"{v.id} has no sandbox note"
+
+
+def test_the_venues_with_real_paper_data_are_the_defaults():
+    assert venue("okx").paper_is_honest
+    assert venue("bitget").paper_is_honest
+    # Binance's testnet is synthetic and wiped monthly, so it is not honest paper.
+    assert not venue("binance").paper_is_honest
+    # Coinbase has no sandbox at all.
+    assert venue("coinbase").sandbox == "none"
+
+
+def test_a_venue_without_a_dead_mans_switch_says_so():
+    text = describe("coinbase")
+    assert "dead-man's switch" in text
+    assert "real money" in text
+
+
+def test_an_unknown_venue_lists_the_known_ones():
+    with pytest.raises(KeyError, match="okx"):
+        venue("definitely-not-an-exchange")
+
+
+def test_local_data_does_not_claim_delisted_coverage():
+    u = from_bars([{"close": 1.0}, {"close": 2.0}], symbol="BTC/USDT")
+    assert u.delisted_included is None  # unknown, never assumed
+    verdict = check(summarise([100.0, 101.0], []), delisted_included=u.delisted_included)
+    assert any(f.code == "survivorship-unknown" for f in verdict.findings)
+
+
+def test_a_universe_reports_survivors_only_loudly():
+    u = from_bars([{"close": 1.0}], delisted_included=False)
+    assert "SURVIVORS ONLY" in u.summary()

@@ -87,12 +87,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     gui = sub.add_parser("gui", help="open the local page in a browser")
     gui.add_argument("--port", type=int, default=8765)
     gui.add_argument("--no-browser", action="store_true")
+    gui.add_argument("--host", default="127.0.0.1",
+                     help="interface to bind. Leave this alone unless you are in a "
+                          "container: the page has no password.")
+
+    venues_cmd = sub.add_parser("venues", help="what each exchange actually gives you")
+    venues_cmd.add_argument("venue", nargs="?", help="one venue, or omit for all")
 
     args = parser.parse_args(argv)
 
+    if args.command == "venues":
+        from .venues import VENUES, describe
+        names = [args.venue] if args.venue else sorted(VENUES)
+        print()
+        for name in names:
+            print(describe(name))
+            print()
+        return 0
+
     if args.command == "gui":
         from .gui import serve
-        serve(port=args.port, open_browser=not args.no_browser)
+        serve(port=args.port, open_browser=not args.no_browser, host=args.host)
         return 0
 
     if args.command != "check":

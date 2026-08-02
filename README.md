@@ -124,6 +124,35 @@ one tests every bar by default. If you pass `sample`, the report says so.
 ## If you do not write Python
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/coreyhiggins/proofmark/main/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+Three lines instead of one, deliberately. The installer refuses to run from a
+pipe unless you pass `--yes`, because `curl | sh` teaches people to execute
+code they have not read, and the next thing they pipe into a shell might not
+be this. It uses no `sudo`, touches no system Python, and writes only inside
+`~/.local`.
+
+For a VPS or a dedicated server:
+
+```bash
+docker run --rm -p 127.0.0.1:8765:8765 proofmark
+```
+
+Publishing the port to `127.0.0.1` rather than `0.0.0.0` keeps it off the
+public internet. There is a systemd unit in [`deploy/`](deploy/) that does the
+same, with the sandboxing flags set. The page has **no authentication**, so if
+you need it from another machine, tunnel rather than expose it:
+
+```bash
+ssh -N -L 8765:127.0.0.1:8765 you@your-server
+```
+
+If you already have Python:
+
+```bash
 pip install proofmark
 proofmark gui
 ```
@@ -192,6 +221,40 @@ If the best lookback is 5 bars in one window and 90 in the next, the optimiser
 is not finding a parameter. It is finding whatever fit the noise in front of
 it. That is visible for free once the windows have run, and it is a more
 honest signal than any single ratio.
+
+## Exchanges, and what each one actually gives you
+
+```bash
+proofmark venues
+```
+
+The differences between venues are large and none of them are in the
+marketing, so they are written down:
+
+| Venue | Paper trading | Worth knowing |
+|---|---|---|
+| **OKX** | Real production data, one header | Best paper story checked. Has a server-side dead-man's switch |
+| **Bitget** | Real production data, one header | Same shape as OKX. No dead-man's switch |
+| Binance | Synthetic, wiped roughly monthly | Order books not synced to production. Geo-blocks US IPs |
+| Kraken | Futures demo only | Only 720 historical candles per symbol via the API |
+| Coinbase | **None at all** | Your first live test is real money |
+| **Alpaca** | Free, unlimited, no account gate | Free data is IEX only, a fraction of national volume |
+
+OKX and Bitget are the defaults because demo mode there runs on the production
+domain against real prices. That is the only arrangement where a paper record
+is a record of anything.
+
+### The part that matters more than the venue
+
+A symbol list from a live exchange contains what still trades. Everything that
+went to zero is missing, and so is its price history. So any universe built by
+asking an exchange what it lists today is **survivors-only by construction**,
+and `fetch_ohlcv` marks it that way, which means the guards refuse to print a
+headline number on top of it.
+
+There is no flag that fixes this. It is a property of where the data came
+from, and the only real fix is a dataset that includes assets which stopped
+existing.
 
 ## On the AI part
 

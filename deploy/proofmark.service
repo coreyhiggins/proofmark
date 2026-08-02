@@ -1,0 +1,58 @@
+# systemd unit for a VPS or dedicated server.
+#
+#   sudo cp deploy/proofmark.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now proofmark
+#
+# Assumes proofmark is installed for a user called `proofmark`, which you can
+# create with:
+#
+#   sudo useradd --create-home --shell /bin/bash proofmark
+#   sudo -u proofmark sh -c 'curl -fsSL <install.sh url> -o /tmp/i.sh && sh /tmp/i.sh --yes'
+#
+# IT BINDS TO LOOPBACK. The page has no authentication, so putting it on a
+# public interface publishes your trading results to anyone who scans the
+# port. To reach it from your laptop, tunnel instead:
+#
+#   ssh -N -L 8765:127.0.0.1:8765 you@your-server
+#
+# then open http://127.0.0.1:8765 locally.
+
+[Unit]
+Description=proofmark, local backtest verification
+Documentation=https://github.com/coreyhiggins/proofmark
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=proofmark
+Group=proofmark
+WorkingDirectory=/home/proofmark
+
+ExecStart=/home/proofmark/.local/bin/proofmark gui --port 8765 --no-browser
+
+Restart=on-failure
+RestartSec=5s
+
+# The process reads pasted numbers and writes nothing. Give it nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/proofmark
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
