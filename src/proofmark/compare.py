@@ -83,7 +83,7 @@ class Leaderboard:
         lesson when the numbers do not support it would be the same dishonesty
         this library exists to catch.
         """
-        rated = [e for e in self.strategies if e.win_rate is not None and e.trades >= 5]
+        rated = [e for e in self.strategies if e.win_rate is not None and e.trades != 1]
         if len(rated) < 2:
             return None
 
@@ -128,6 +128,62 @@ def leaderboard(
         trades=1,
         win_rate=None,
         is_benchmark=True,
+    ))
+    return Leaderboard(entries=entries, benchmark_return=benchmark_return)
+
+
+def parse_rows(text: str) -> list[tuple[str, float, float | None]]:
+    """Read ``name, return, win rate`` lines into entries.
+
+    Deliberately forgiving. People paste what they have, which is a name and a
+    percentage, sometimes with a win rate and sometimes not. Refusing that
+    because it is not a Metrics object would mean nobody ever uses this.
+
+    A return is read as a percentage when it looks like one, so both ``168.2``
+    and ``1.682`` mean the same thing. The ambiguity is real, and the tiebreak
+    is that nobody writes a 16,820% return and everybody writes 168.2%.
+    """
+    rows: list[tuple[str, float, float | None]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.replace("\t", ",").split(",")]
+        if len(parts) < 2:
+            continue
+
+        name = parts[0] or "unnamed"
+        numbers: list[float] = []
+        for chunk in parts[1:]:
+            try:
+                numbers.append(float(chunk.replace("%", "").replace("$", "").replace(",", "")))
+            except ValueError:
+                continue
+        if not numbers:
+            continue
+
+        total = numbers[0]
+        if abs(total) > 3:  # written as a percentage
+            total /= 100
+        win = None
+        if len(numbers) > 1:
+            win = numbers[1] / 100 if numbers[1] > 1 else numbers[1]
+        rows.append((name[:40], total, win))
+    return rows
+
+
+def leaderboard_from_rows(
+    rows: Sequence[tuple[str, float, float | None]],
+    benchmark_return: float,
+) -> Leaderboard:
+    """Build a board from simple rows rather than full results."""
+    entries = [
+        Entry(name=name, total_return=total, max_drawdown=0.0, trades=0, win_rate=win)
+        for name, total, win in rows
+    ]
+    entries.append(Entry(
+        name=HOLD, total_return=benchmark_return, max_drawdown=0.0,
+        trades=1, win_rate=None, is_benchmark=True,
     ))
     return Leaderboard(entries=entries, benchmark_return=benchmark_return)
 

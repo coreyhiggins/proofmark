@@ -27,6 +27,7 @@ from typing import Any
 import time
 
 from .charts import equity_chart, underwater_chart
+from .compare import leaderboard_from_rows, parse_rows
 from .live import alerts, read_state
 from .livepage import LIVE_PAGE
 from .page import PAGE
@@ -96,6 +97,40 @@ def _analyse(payload: dict[str, Any]) -> dict[str, Any]:
             ("Sortino", show(result.sortino)),
             ("Calmar", show(result.calmar)),
             ("Profit factor", show(result.profit_factor)),
+        ],
+    }
+
+
+def _compare(payload: dict[str, Any]) -> dict[str, Any]:
+    """Rank pasted strategies with buy-and-hold sitting among them as a row."""
+    rows = parse_rows(str(payload.get("rows") or ""))
+    if not rows:
+        return {"error": "Each line needs a name and a return, separated by a comma."}
+
+    hold = float(payload.get("hold") or 0.0)
+    if abs(hold) > 3:  # entered as a percentage, same reading as the rows
+        hold /= 100
+
+    board = leaderboard_from_rows(rows, benchmark_return=hold)
+    return {
+        "headline": board.headline,
+        "lost": bool(board.beaten_by_holding),
+        "lesson": board.win_rate_lesson(),
+        "entries": [
+            {
+                "name": e.name,
+                "ret": f"{e.total_return:+.1%}",
+                # A separate column, because colouring a genuine +101.6% red for
+                # losing to the benchmark reads as "this lost money". It did
+                # not. It gained, and still cost you 6.9 points against sitting
+                # still, which is a different sentence and deserves its own one.
+                "gap": "" if e.is_benchmark else f"{e.total_return - board.benchmark_return:+.1%}",
+                "win": f"{e.win_rate:.1%}" if e.win_rate is not None else "-",
+                "benchmark": e.is_benchmark,
+                "beaten": not e.is_benchmark and e.total_return < board.benchmark_return,
+                "negative": e.total_return < 0,
+            }
+            for e in board.ranked
         ],
     }
 
@@ -183,7 +218,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/check":
+        if self.path not in ("/check", "/compare"):
             self._send(404, b"not found", "text/plain")
             return
 
@@ -192,7 +227,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         length = min(int(self.headers.get("Content-Length") or 0), 8 * 1024 * 1024)
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
-            result = _analyse(payload)
+            result = _analyse(payload) if self.path == "/check" else _compare(payload)
         except (ValueError, TypeError, KeyError) as err:
             result = {"error": f"Could not read those numbers: {err}"}
 

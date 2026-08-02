@@ -654,7 +654,7 @@ def test_timeframes_with_too_few_bars_are_skipped_not_guessed_at():
 
 # -------------------------------------------------------------- compare ----
 
-from proofmark.compare import format_leaderboard, leaderboard
+from proofmark.compare import format_leaderboard, leaderboard, parse_rows
 
 
 def _result(total, dd=0.2, trades=20, wins=0.5):
@@ -743,3 +743,39 @@ def test_no_benchmark_means_no_benchmark_finding():
                     "costs": 5.0, "delisted": "yes"})
     details = " ".join(f["detail"] for f in out["findings"])
     assert "buying once and holding" not in details
+
+
+def test_parse_rows_reads_percentages_and_fractions():
+    rows = parse_rows("EMA cross, 168.2, 34.8\nquiet one, 0.42\n")
+    assert rows[0] == ("EMA cross", 1.682, 0.348)
+    assert rows[1] == ("quiet one", 0.42, None)
+
+
+def test_parse_rows_skips_junk_without_crashing():
+    assert parse_rows("header row\n\n  \nreal, 12.5") == [("real", 0.125, None)]
+
+
+def test_compare_endpoint_marks_the_losers():
+    """Goes through the server payload, not the library, because the last bug
+    of this class was a working guard that nothing ever called."""
+    from proofmark.gui import _compare
+
+    out = _compare({"rows": "winner, 168.2, 34.8\nloser, 12.0, 79.4", "hold": 108.5})
+    assert out["headline"] == "1 of 2 lost to doing nothing."
+    assert out["lost"] is True
+    # The benchmark is ranked among them, not appended after them.
+    assert [e["name"] for e in out["entries"]] == ["winner", "buy and hold", "loser"]
+    assert out["entries"][1]["benchmark"] is True
+    assert out["entries"][2]["beaten"] is True
+    # The gap, not the return, is what gets coloured. A strategy that gained
+    # 12% while holding gained 108.5% is not a strategy that lost money.
+    assert out["entries"][2]["gap"] == "-96.5%"
+    assert out["entries"][2]["negative"] is False
+    assert out["entries"][1]["gap"] == ""
+    assert "Win rate is how often you are right" in out["lesson"]
+
+
+def test_compare_endpoint_refuses_empty_input():
+    from proofmark.gui import _compare
+
+    assert "error" in _compare({"rows": "", "hold": 10})

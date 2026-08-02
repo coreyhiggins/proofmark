@@ -40,13 +40,23 @@ PAGE = """<!doctype html>
     --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,sans-serif;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   }
+  /* Light was an afterthought in the first pass: the dark values inverted,
+     which turned brass into mustard on cream and read as a dated document.
+     Rebuilt from the light end instead.
+
+     Two changes carry it. The page sits on a soft warm grey while cards are
+     pure white, so elevation comes from the surface rather than from a border.
+     And the accent is bronze rather than gold, because gold on a pale
+     background is olive, and olive is not a colour anyone chose. */
   @media (prefers-color-scheme: light) {
     :root {
-      --bg:#FAF7F1; --panel:#FFFFFF; --raised:#F2ECE1;
-      --ink:#191512; --soft:#5D5449; --faint:#8B8172;
-      --line:#E2D9C9; --brass:#96701A; --brass-dim:#D9C68F;
-      --pass:#1B7A46; --fail:#A32A18; --warn:#7A5A08;
+      --bg:#F3F1ED; --panel:#FFFFFF; --raised:#F7F5F1;
+      --ink:#14120F; --soft:#55504A; --faint:#837D74;
+      --line:#E4E0D8; --brass:#7A5310; --brass-dim:#CBBFA6;
+      --pass:#116639; --fail:#992010; --warn:#6B4C06;
     }
+    .card, .verdict { box-shadow:0 1px 2px rgba(20,18,15,.05); }
+    textarea, input[type=number] { background:var(--raised); }
   }
   *,*::before,*::after { box-sizing:border-box; }
   body {
@@ -97,6 +107,57 @@ PAGE = """<!doctype html>
     content:"+"; font:400 1.05rem/1 var(--mono); color:var(--brass);
   }
   details.more[open] > summary::before { content:"\\2212"; }
+
+  /* The comparison panel. Its own surface, because it answers a different
+     question from the one above it and should not read as more options. */
+  details.panel {
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:1rem 1.2rem; margin-top:1.6rem;
+  }
+  details.panel > summary { color:var(--ink); }
+
+  table.board {
+    width:100%; border-collapse:collapse; margin-top:1rem;
+    font:500 .84rem/1.5 var(--sans); font-variant-numeric:tabular-nums;
+  }
+  table.board th {
+    text-align:left; font:600 .68rem/1.4 var(--sans); letter-spacing:.09em;
+    text-transform:uppercase; color:var(--faint); padding:0 .6rem .5rem;
+    border-bottom:1px solid var(--line);
+  }
+  table.board td { padding:.5rem .6rem; border-bottom:1px solid var(--line); }
+  table.board .n { text-align:right; }
+  table.board .rank { color:var(--faint); width:2rem; font-size:.76rem; }
+  /* One row is the benchmark. It is ranked among the others rather than sitting
+     in a footnote, because a reader can skip a footnote. */
+  table.board tr.hold td {
+    background:color-mix(in srgb, var(--brass) 20%, transparent);
+    color:var(--ink); font-weight:700;
+  }
+  table.board tr.hold td:first-child { box-shadow:inset 3px 0 0 var(--brass); }
+  /* Only the gap column carries the colour. The return column is red when the
+     money actually went down and at no other time. */
+  table.board tr.under .gap { color:var(--fail); }
+  table.board tr.over .gap { color:var(--pass); }
+  table.board .neg { color:var(--fail); }
+  table.board .gap { font-weight:600; }
+
+  table.board tbody tr { animation:rowin .34s cubic-bezier(.22,.61,.36,1) backwards; }
+  @keyframes rowin { from { opacity:0; transform:translateY(6px); } }
+
+  p.headline {
+    margin:1.2rem 0 0; font:600 1.05rem/1.4 var(--serif); color:var(--ink);
+  }
+  p.headline.bad { color:var(--fail); }
+  p.lesson { margin:.9rem 0 0; font:400 .82rem/1.6 var(--sans); color:var(--soft); }
+  code {
+    font:500 .78em/1 var(--mono); background:var(--raised);
+    padding:.15em .4em; border-radius:4px; color:var(--soft);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    table.board tbody tr { animation:none; }
+  }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:1.1rem; }
 
   .choices { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem; }
@@ -189,6 +250,13 @@ PAGE = """<!doctype html>
 
   .err { color:var(--fail); }
   .foot { margin-top:3rem; font-size:.85rem; color:var(--faint); line-height:1.7; }
+  /* Declared here, after button.go, so it actually applies. Placing it up in
+     the light-mode :root block left the label at 2.71:1 against the bronze,
+     which fails AA and was invisible until the contrast was measured. */
+  @media (prefers-color-scheme: light) {
+    button.go { color:#FFFFFF; }
+  }
+
   @media (max-width:36rem) { .wrap { padding:2rem 1.1rem 4rem; } .hero { font-size:1.32rem; } }
   @media (prefers-reduced-motion:no-preference) {
     #out > * { animation:rise .55s cubic-bezier(.16,.84,.34,1) both; }
@@ -279,6 +347,32 @@ PAGE = """<!doctype html>
 
   <div id="out" aria-live="polite"></div>
 
+  <!-- Second question, deliberately below the first and closed by default. A
+       person checking one result should not have to walk past a second form to
+       reach the answer. A person with six results goes looking, and finds it. -->
+  <details class="more panel">
+    <summary>Compare several strategies against doing nothing</summary>
+    <div style="padding-top:.6rem">
+      <label class="lbl" for="rows">Your strategies</label>
+      <p class="hint">One per line: a name, the total return, and the win rate if
+        you have it. <code>EMA cross, 168.2, 34.8</code></p>
+      <textarea id="rows" style="min-height:8rem"
+        placeholder="EMA cross, 168.2, 34.8&#10;RSI dip buy, 35.7, 71.9&#10;Supertrend, -6.8, 33.3"></textarea>
+
+      <div style="margin-top:1rem;max-width:16rem">
+        <label class="lbl" for="hold">What holding returned, in percent</label>
+        <p class="hint">Over the same period, same asset.</p>
+        <input id="hold" type="number" step="any" placeholder="108.5">
+      </div>
+
+      <div class="actions">
+        <button class="go" id="rank">Rank them</button>
+        <button class="ghost" id="sample2">Try it with a sample</button>
+      </div>
+      <div id="board" aria-live="polite"></div>
+    </div>
+  </details>
+
   <p class="foot">Passing every check does not mean a strategy works. It means the
   obvious ways of fooling yourself have been ruled out. This is not investment advice.</p>
 </div>
@@ -368,6 +462,71 @@ function render(d) {
 
   out.innerHTML = html;
   out.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+$('sample2').onclick = () => {
+  // The published table from the writeup this check came from, benchmark and
+  // all. Seven strategies, six of them worse than not trading, and the one
+  // that won had the second-worst win rate on the board.
+  $('rows').value = [
+    'EMA cross 9/21, 168.2, 34.8',
+    'Ichimoku breakout, 101.6, 28.6',
+    '52-week high, 83.5, 75.0',
+    'MACD crossover, 50.0, 37.2',
+    'VWAP reversion, 37.0, 79.4',
+    'RSI-2 dip buy, 35.7, 71.9',
+    'Supertrend, -6.8, 33.3'
+  ].join('\\n');
+  $('hold').value = '108.5';
+  $('rank').click();
+};
+
+$('rank').onclick = async () => {
+  const btn = $('rank'), board = $('board');
+  if ($('hold').value === '') {
+    board.innerHTML = '<p class="err">Fill in what holding returned. Without it '
+      + 'there is nothing to rank against, which is the whole point.</p>';
+    return;
+  }
+  btn.disabled = true; board.innerHTML = '';
+  try {
+    const res = await fetch('/compare', {method: 'POST', body: JSON.stringify({
+      rows: $('rows').value, hold: Number($('hold').value)
+    })});
+    renderBoard(await res.json());
+  } catch (e) {
+    board.innerHTML = '<p class="err">Could not reach the local server. Is it still running?</p>';
+  }
+  btn.disabled = false;
+};
+
+function renderBoard(d) {
+  const board = $('board');
+  if (d.error) { board.innerHTML = '<p class="err">' + esc(d.error) + '</p>'; return; }
+
+  let html = '<p class="headline' + (d.lost ? ' bad' : '') + '">' + esc(d.headline) + '</p>'
+    + '<table class="board"><thead><tr><th></th><th>strategy</th>'
+    + '<th class="n">return</th><th class="n">vs holding</th>'
+    + '<th class="n">win rate</th></tr></thead><tbody>'
+    + d.entries.map((e, i) =>
+      '<tr class="' + (e.benchmark ? 'hold' : (e.beaten ? 'under' : 'over')) + '"'
+      + ' style="animation-delay:' + (i * 45) + 'ms">'
+      + '<td class="rank">' + (i + 1) + '</td><td>' + esc(e.name) + '</td>'
+      + '<td class="n' + (e.negative ? ' neg' : '') + '">' + esc(e.ret) + '</td>'
+      + '<td class="n gap">' + esc(e.gap) + '</td>'
+      + '<td class="n">' + esc(e.win) + '</td></tr>').join('')
+    + '</tbody></table>';
+
+  if (d.lesson) html += '<p class="lesson">' + esc(d.lesson) + '</p>';
+  if (d.lost) {
+    // Careful with this sentence. A strategy that made 101% while holding made
+    // 108% did not lose money, it lost the comparison, and saying otherwise
+    // would be the same loose arithmetic this tool exists to catch.
+    html += '<p class="lesson">Everything below the highlighted row would have '
+      + 'finished ahead by doing nothing at all. All the work, all the fees, and '
+      + 'less money at the end than buying once and leaving it alone.</p>';
+  }
+  board.innerHTML = html;
 }
 </script>
 """
