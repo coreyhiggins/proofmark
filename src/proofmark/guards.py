@@ -156,6 +156,20 @@ def check(
                 "or a different starting date. Treat it as a tie.",
             ))
 
+        # The clearest single demonstration that win rate is not edge: being
+        # right most of the time while still finishing behind doing nothing.
+        if gap < 0 and result.win_rate is not None and result.win_rate > 0.65:
+            add(Finding(
+                Severity.WARN, "high-win-rate-still-lost",
+                f"won {result.win_rate:.1%} of trades and still finished "
+                f"{abs(gap):.1%} behind buying and holding",
+                "Win rate is how often you are right. It says nothing about how "
+                "much you make when you are, or lose when you are not. A "
+                "published test of twelve strategies had its winner take 34.8% "
+                "of its trades, while the one winning 79.4% made less than a "
+                "quarter as much.",
+            ))
+
     # ------------------------------------------------------------ undefined --
 
     for name, value in (("sortino", result.sortino), ("calmar", result.calmar)):

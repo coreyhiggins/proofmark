@@ -51,6 +51,15 @@ def _analyse(payload: dict[str, Any]) -> dict[str, Any]:
 
     pnls = [float(v) for v in payload.get("pnls") or []]
     result = summarise(equity, pnls)
+    benchmark = [float(v) for v in payload.get("benchmark") or []]
+
+    # The comparison the page already draws, handed to the guards so it becomes
+    # a finding rather than only a caption. Without this the page could show a
+    # strategy losing 38% while holding gained 77% and say nothing about it,
+    # which is exactly what it did until someone actually looked at the screen.
+    benchmark_return = None
+    if len(benchmark) >= 2 and benchmark[0]:
+        benchmark_return = (benchmark[-1] / benchmark[0]) - 1
 
     delisted = {"yes": True, "no": False}.get(payload.get("delisted"), None)
     verdict = check(
@@ -58,14 +67,13 @@ def _analyse(payload: dict[str, Any]) -> dict[str, Any]:
         trials=max(1, int(payload.get("trials") or 1)),
         costs_applied=payload.get("costs"),
         delisted_included=delisted,
+        benchmark_return=benchmark_return,
     )
 
     def show(value: float | None, pct: bool = False) -> str:
         if value is None:
             return "undefined"
         return f"{value:.1%}" if pct else f"{value:.2f}"
-
-    benchmark = [float(v) for v in payload.get("benchmark") or []]
 
     return {
         "reportable": verdict.reportable,

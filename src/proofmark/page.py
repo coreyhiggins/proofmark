@@ -54,6 +54,12 @@ PAGE = """<!doctype html>
     font:16px/1.6 var(--sans); -webkit-font-smoothing:antialiased;
   }
   .wrap { max-width:52rem; margin:0 auto; padding:3rem 1.5rem 6rem; }
+  /* A narrow column stranded in the top third of a maximised window reads as
+     unfinished. With no result yet there is nothing below it, so centre it. */
+  body:has(#out:empty) .wrap {
+    min-height:100dvh; display:flex; flex-direction:column; justify-content:center;
+    padding-top:2rem; padding-bottom:2rem;
+  }
 
   /* ---------------------------------------------------------- masthead -- */
   .top { display:flex; align-items:center; gap:.85rem; margin-bottom:2.6rem; }
@@ -133,11 +139,34 @@ PAGE = """<!doctype html>
   .plate h3 { margin:0 0 .1rem; font:600 .82rem/1.4 var(--sans); }
   .plate .cap { margin:0; font-size:.83rem; color:var(--soft); }
   svg.chart { display:block; width:100%; margin-top:.9rem; overflow:visible; }
-  svg.chart .subject { fill:none; stroke:var(--brass); stroke-width:2; vector-effect:non-scaling-stroke; stroke-linejoin:round; }
-  svg.chart .bench { fill:none; stroke:var(--soft); stroke-width:1.3; stroke-dasharray:4 4; vector-effect:non-scaling-stroke; }
-  svg.chart .zero { stroke:var(--line); stroke-width:1; vector-effect:non-scaling-stroke; }
-  svg.chart .underwater { fill:var(--fail); fill-opacity:.18; stroke:var(--fail); stroke-width:1.4; vector-effect:non-scaling-stroke; }
-  svg.chart .oos { fill:var(--brass); opacity:.07; }
+  svg.chart .grid { stroke:var(--line); stroke-width:1; }
+  svg.chart .base { stroke:var(--soft); stroke-width:1; stroke-dasharray:2 3; opacity:.7; }
+  svg.chart .tick { fill:var(--faint); font:11px var(--mono); font-variant-numeric:tabular-nums; }
+  svg.chart .tick-base { fill:var(--soft); }
+  svg.chart .tag { font:600 11px var(--sans); letter-spacing:.03em; }
+  svg.chart .bench-tag { fill:var(--soft); }
+  svg.chart .subject-tag { fill:var(--brass); }
+  svg.chart .subject { fill:none; stroke:var(--brass); stroke-width:2.2; stroke-linejoin:round; stroke-linecap:round; }
+  svg.chart .bench { fill:none; stroke:var(--soft); stroke-width:1.3; stroke-dasharray:5 4; opacity:.8; }
+  svg.chart .underwater { fill:var(--fail); fill-opacity:.16; stroke:none; }
+  svg.chart .underwater-line { fill:none; stroke:var(--fail); stroke-width:1.6; stroke-linejoin:round; }
+  svg.chart .oos { fill:var(--brass); opacity:.06; }
+
+  /* The line draws itself, left to right. Watching the strategy fall away
+     from the benchmark lands differently from seeing two finished lines, and
+     a dash offset animates on the compositor rather than in layout. */
+  @media (prefers-reduced-motion:no-preference) {
+    svg.chart .drawn {
+      stroke-dasharray:3000; stroke-dashoffset:3000;
+      animation:draw 1.15s cubic-bezier(.33,.9,.36,1) .1s forwards;
+    }
+    @keyframes draw { to { stroke-dashoffset:0; } }
+    svg.chart .grown { transform-origin:50% 0; animation:grow .75s cubic-bezier(.33,.9,.36,1) .08s both; }
+    @keyframes grow { from { transform:scaleY(.02); opacity:0; } }
+    svg.chart .grid, svg.chart .base, svg.chart .tick, svg.chart .tag,
+    svg.chart .bench, svg.chart .underwater-line { animation:fadeIn .55s ease .2s both; }
+    @keyframes fadeIn { from { opacity:0; } }
+  }
   .chart-caption { margin:.6rem 0 0; font:.82rem/1.5 var(--sans); color:var(--soft); font-variant-numeric:tabular-nums; }
 
   ol.notes { list-style:none; margin:0; padding:0; }
@@ -162,10 +191,20 @@ PAGE = """<!doctype html>
   .foot { margin-top:3rem; font-size:.85rem; color:var(--faint); line-height:1.7; }
   @media (max-width:36rem) { .wrap { padding:2rem 1.1rem 4rem; } .hero { font-size:1.32rem; } }
   @media (prefers-reduced-motion:no-preference) {
-    #out > * { animation:rise .4s cubic-bezier(.2,.7,.3,1) both; }
-    #out > *:nth-child(2) { animation-delay:.05s; }
-    #out > *:nth-child(3) { animation-delay:.1s; }
-    @keyframes rise { from { opacity:0; transform:translateY(8px); } }
+    #out > * { animation:rise .55s cubic-bezier(.16,.84,.34,1) both; }
+    #out > *:nth-child(2) { animation-delay:.07s; }
+    #out > *:nth-child(3) { animation-delay:.14s; }
+    #out > *:nth-child(4) { animation-delay:.21s; }
+    #out > *:nth-child(5) { animation-delay:.28s; }
+    @keyframes rise { from { opacity:0; transform:translateY(14px) scale(.985); } }
+    ol.notes li { animation:rise .45s cubic-bezier(.16,.84,.34,1) both; }
+    ol.notes li:nth-child(2) { animation-delay:.06s; }
+    ol.notes li:nth-child(3) { animation-delay:.12s; }
+    ol.notes li:nth-child(4) { animation-delay:.18s; }
+    .fig { animation:rise .4s cubic-bezier(.16,.84,.34,1) both; }
+    .fig:nth-child(2) { animation-delay:.03s; } .fig:nth-child(3) { animation-delay:.06s; }
+    .fig:nth-child(4) { animation-delay:.09s; } .fig:nth-child(5) { animation-delay:.12s; }
+    .fig:nth-child(6) { animation-delay:.15s; } .fig:nth-child(7) { animation-delay:.18s; }
   }
 </style>
 <div class="wrap">

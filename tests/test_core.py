@@ -399,7 +399,8 @@ def test_the_benchmark_is_drawn_and_the_gap_is_stated():
 
 def test_a_chart_without_a_benchmark_still_draws():
     svg = equity_chart([100.0, 110.0, 105.0, 120.0])
-    assert 'class="subject"' in svg
+    # The class carries an animation modifier, so match the token not the string.
+    assert 'subject' in svg
     assert 'class="bench"' not in svg
 
 
@@ -522,13 +523,18 @@ from proofmark.desktop import free_port, start_server
 
 def test_a_busy_port_is_stepped_over():
     import socket as _s
+    # Bind whatever the OS gives us rather than assuming a fixed port is free.
+    # The first version hard-coded 8765 and failed the moment a real proofmark
+    # was running on this machine, which is exactly when you least want a red
+    # test suite.
     holder = _s.socket()
-    holder.bind(("127.0.0.1", 8765))
+    holder.bind(("127.0.0.1", 0))
     holder.listen(1)
+    taken = holder.getsockname()[1]
     try:
-        # Refusing to start because something holds 8765 is not an acceptable
-        # outcome for a program somebody double-clicked.
-        assert free_port(8765) != 8765
+        # Refusing to start because something holds the port is not an
+        # acceptable outcome for a program somebody double-clicked.
+        assert free_port(taken) != taken
     finally:
         holder.close()
 
@@ -571,3 +577,169 @@ def test_the_asset_pattern_matches_what_the_release_actually_publishes():
     # Release artifacts are named proofmark-{windows,macos,linux}-*, so the
     # pattern has to be one of those three or the updater finds nothing.
     assert _asset_pattern() in ("windows", "macos", "linux")
+
+
+# ----------------------------------------------------------- timeframes ----
+
+from proofmark.timeframes import format_sweep, resample, sweep
+
+
+def _ohlcv(n=600):
+    bars, price = [], 100.0
+    for i in range(n):
+        price *= 1.003 if (i // 15) % 2 == 0 else 0.9975
+        bars.append({"timestamp": i, "open": price, "high": price * 1.01,
+                     "low": price * 0.99, "close": price * 1.002, "volume": 100.0 + i})
+    return bars
+
+
+def test_resampling_keeps_the_extremes_not_the_last_value():
+    bars = [
+        {"open": 10, "high": 12, "low": 9, "close": 11, "volume": 5},
+        {"open": 11, "high": 20, "low": 4, "close": 13, "volume": 7},  # the spike
+        {"open": 13, "high": 14, "low": 12, "close": 14, "volume": 3},
+    ]
+    merged = resample(bars, 3)[0]
+    assert merged["open"] == 10 and merged["close"] == 14
+    # Taking the last high would discard the spike a stop would have hit.
+    assert merged["high"] == 20
+    assert merged["low"] == 4
+    assert merged["volume"] == 15
+
+
+def test_a_trailing_partial_group_is_dropped():
+    bars = [{"open": i, "high": i, "low": i, "close": i, "volume": 1} for i in range(7)]
+    # A half-formed bar is not a bar: deciding on it is lookahead in a coat.
+    assert len(resample(bars, 3)) == 2
+
+
+def test_resampling_by_one_changes_nothing():
+    bars = _ohlcv(10)
+    assert resample(bars, 1) == [dict(b) for b in bars]
+
+
+def _long_only(bars):
+    equity, pnls = [1000.0], []
+    for i in range(1, len(bars)):
+        equity.append(equity[-1] * (bars[i]["close"] / bars[i - 1]["close"]))
+        if i % 20 == 0:
+            pnls.append(equity[-1] - equity[-20])
+    return equity, pnls
+
+
+def test_a_consistent_strategy_does_not_flip():
+    result = sweep(_ohlcv(), _long_only, factors=(1, 2, 3))
+    assert result.runs
+    assert not result.flips
+
+
+def test_a_sign_flip_is_caught_and_explained():
+    # Wins on the raw bars, loses once they are grouped. Same prices either way.
+    def brittle(bars):
+        direction = 1 if len(bars) > 400 else -1
+        equity = [1000.0]
+        for _ in bars[1:]:
+            equity.append(equity[-1] * (1 + 0.001 * direction))
+        return equity, [1.0] * 10
+
+    result = sweep(_ohlcv(), brittle, factors=(1, 3))
+    assert result.flips
+    assert "THE SIGN FLIPS" in format_sweep(result)
+
+
+def test_timeframes_with_too_few_bars_are_skipped_not_guessed_at():
+    result = sweep(_ohlcv(200), _long_only, factors=(1, 50))
+    assert 50 in result.skipped
+
+
+# -------------------------------------------------------------- compare ----
+
+from proofmark.compare import format_leaderboard, leaderboard
+
+
+def _result(total, dd=0.2, trades=20, wins=0.5):
+    equity = [1000.0, 1000.0 * (1 - dd), 1000.0 * (1 + total)]
+    m = summarise(equity, [1.0] * int(trades * wins) + [-1.0] * (trades - int(trades * wins)))
+    return m
+
+
+def test_the_headline_counts_what_lost_to_doing_nothing():
+    board = leaderboard(
+        [("a", _result(0.10)), ("b", _result(-0.20)), ("c", _result(0.02))],
+        benchmark_return=0.08,
+    )
+    assert board.headline == "2 of 3 lost to doing nothing."
+
+
+def test_the_benchmark_is_ranked_among_the_strategies():
+    board = leaderboard([("a", _result(0.10)), ("b", _result(-0.20))], benchmark_return=0.05)
+    names = [e.name for e in board.ranked]
+    assert names.index("buy and hold") == 1  # second, not in a footnote
+    assert ">" in format_leaderboard(board)
+
+
+def test_all_winning_says_so_rather_than_forcing_a_negative():
+    board = leaderboard([("a", _result(0.30)), ("b", _result(0.25))], benchmark_return=0.05)
+    assert board.headline == "All 2 beat doing nothing."
+
+
+def test_the_win_rate_lesson_only_appears_when_the_data_shows_it():
+    # High win rate, low return, against a low win rate with a high return.
+    board = leaderboard(
+        [("grinder", _result(0.05, trades=40, wins=0.8)),
+         ("runner", _result(0.60, trades=40, wins=0.3))],
+        benchmark_return=0.02,
+    )
+    lesson = board.win_rate_lesson()
+    assert lesson and "grinder" in lesson and "runner" in lesson
+
+
+def test_no_lesson_is_invented_when_the_best_also_wins_most():
+    board = leaderboard(
+        [("best", _result(0.60, trades=40, wins=0.9)),
+         ("worst", _result(0.05, trades=40, wins=0.2))],
+        benchmark_return=0.02,
+    )
+    assert board.win_rate_lesson() is None
+
+
+def test_a_high_win_rate_that_still_lost_is_flagged_on_a_single_result():
+    m = _result(0.02, trades=40, wins=0.8)
+    verdict = check(m, costs_applied=1.0, delisted_included=True, benchmark_return=0.40)
+    codes = {f.code for f in verdict.findings}
+    assert "beaten-by-holding" in codes
+    assert "high-win-rate-still-lost" in codes
+
+
+def test_beating_the_benchmark_raises_neither()  :
+    m = _result(0.60, trades=40, wins=0.8)
+    verdict = check(m, costs_applied=1.0, delisted_included=True, benchmark_return=0.10)
+    codes = {f.code for f in verdict.findings}
+    assert "beaten-by-holding" not in codes
+    assert "high-win-rate-still-lost" not in codes
+
+
+def test_the_page_hands_the_benchmark_to_the_guards(tmp_path):
+    """The bug this catches: the page drew the comparison and never judged it.
+
+    A run losing 38% while buying and holding gained 77% produced no finding
+    at all, because _analyse computed the benchmark for the chart and did not
+    pass it to check(). Found by looking at the rendered screen, not by any
+    test that existed at the time.
+    """
+    losing = [10000.0 * (0.997 ** i) for i in range(120)]
+    holding = [10000.0 * (1.004 ** i) for i in range(120)]
+    out = _analyse({
+        "equity": losing, "pnls": [5.0] * 30 + [-1.0] * 5,
+        "benchmark": holding, "trials": 1, "costs": 10.0, "delisted": "yes",
+    })
+    details = " ".join(f["detail"] for f in out["findings"])
+    assert "buying once and holding" in details
+    assert not out["reportable"]
+
+
+def test_no_benchmark_means_no_benchmark_finding():
+    out = _analyse({"equity": [100.0, 90.0, 95.0] * 20, "pnls": [1.0, -1.0] * 10,
+                    "costs": 5.0, "delisted": "yes"})
+    details = " ".join(f["detail"] for f in out["findings"])
+    assert "buying once and holding" not in details

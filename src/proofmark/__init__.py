@@ -8,10 +8,12 @@ can point it at whatever engine you already use.
 """
 
 from .charts import buy_and_hold, equity_chart, underwater_chart
+from .compare import Leaderboard, format_leaderboard, leaderboard
 from .guards import Finding, Severity, Verdict, check, format_verdict
 from .lookahead import LookaheadReport, assert_no_lookahead, check_lookahead
 from .live import Decision, Position, State, read_state, write_state
 from .metrics import Metrics, equity_drawdown, summarise
+from .timeframes import SweepResult, format_sweep, resample, sweep
 from .venues import VENUES, describe, venue
 from .walkforward import WalkForwardResult, format_walk_forward, walk_forward
 
@@ -26,18 +28,25 @@ __all__ = [
     "VENUES",
     "Decision",
     "Finding",
+    "Leaderboard",
     "LookaheadReport",
     "Metrics",
     "Position",
     "Severity",
     "State",
+    "SweepResult",
     "Verdict",
     "WalkForwardResult",
     "assert_no_lookahead",
     "buy_and_hold",
     "describe",
     "equity_chart",
+    "format_leaderboard",
+    "format_sweep",
     "format_walk_forward",
+    "leaderboard",
+    "resample",
+    "sweep",
     "read_state",
     "underwater_chart",
     "venue",

@@ -42,7 +42,7 @@ jobs:
           pyinstaller packaging/desktop.py
           --name proofmark
           --onefile
-          --console
+          --windowed
           --clean
           --noconfirm
           --collect-all webview
