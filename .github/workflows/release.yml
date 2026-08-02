@@ -1,0 +1,72 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Builds the double-click app for the three desktop platforms.
+#
+# These binaries are NOT code-signed. Windows SmartScreen will warn, and macOS
+# Gatekeeper will refuse to open it until the user right-clicks and chooses
+# Open. Signing needs a paid certificate per platform and an identity to sign
+# under, which is a decision for the owner rather than something to fake.
+# The README says this plainly rather than letting someone hit it cold.
+
+jobs:
+  desktop:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: proofmark-windows
+            binary: proofmark.exe
+          - os: macos-latest
+            artifact: proofmark-macos
+            binary: proofmark
+          - os: ubuntu-latest
+            artifact: proofmark-linux
+            binary: proofmark
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -e . pyinstaller
+
+      - name: build
+        run: >
+          pyinstaller packaging/desktop.py
+          --name proofmark
+          --onefile
+          --console
+          --clean
+          --noconfirm
+
+      # A binary that does not start is worse than no binary, and the failure
+      # mode is silent for someone who double-clicks it. Prove it runs.
+      - name: the binary actually starts and serves
+        shell: bash
+        run: |
+          ./dist/${{ matrix.binary }} &
+          pid=$!
+          sleep 6
+          for port in 8765 8766 8767 8768; do
+            if curl -fsS "http://127.0.0.1:$port/" -o /dev/null 2>/dev/null; then
+              echo "served on $port"
+              kill $pid 2>/dev/null || true
+              exit 0
+            fi
+          done
+          echo "binary started but never served a page"
+          kill $pid 2>/dev/null || true
+          exit 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.binary }}
+          if-no-files-found: error
