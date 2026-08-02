@@ -150,6 +150,17 @@ you need it from another machine, tunnel rather than expose it:
 ssh -N -L 8765:127.0.0.1:8765 you@your-server
 ```
 
+Or download a build from
+[Releases](https://github.com/coreyhiggins/proofmark/releases) and double-click
+it. No Python, no terminal.
+
+> **These builds are not code-signed.** Windows SmartScreen will warn you, and
+> macOS will refuse to open it until you right-click and choose Open. That is
+> what an unsigned binary looks like, not a sign anything is wrong, and you
+> should treat every unsigned binary from the internet with exactly that
+> suspicion. If you would rather not, use `pip` or the installer above, where
+> you can read what you are running.
+
 If you already have Python:
 
 ```bash
