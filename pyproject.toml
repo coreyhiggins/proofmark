@@ -21,6 +21,14 @@ classifiers = [
 # dependency tree. Exchange and data adapters live behind extras.
 dependencies = []
 
+# Without this, `pip install proofmark` succeeds and then `proofmark gui` does
+# not exist, which is every install instruction in the README failing at the
+# first step. It went missing once during an unrelated edit and was caught by
+# installing the built wheel into a clean environment. CI now does that on
+# every push.
+[project.scripts]
+proofmark = "proofmark.cli:main"
+
 [project.optional-dependencies]
 crypto = ["ccxt>=4.4"]
 equities = ["alpaca-py>=0.30"]

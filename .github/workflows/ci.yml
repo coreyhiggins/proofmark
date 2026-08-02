@@ -80,3 +80,31 @@ jobs:
           assert result.sortino is None and result.calmar is None, "a sentinel crept back in"
           print(f"suppressed with {len(codes)} fatal findings")
           PY
+
+  # `pip install proofmark` succeeding while `proofmark gui` does not exist is
+  # every install instruction in the README failing at the first step, and it
+  # is invisible to a test suite that imports the package directly. This
+  # installs the built wheel into a clean environment and runs the command.
+  packaged-console-script:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install build && python -m build --wheel
+
+      - name: the wheel provides a working `proofmark` command
+        shell: bash
+        run: |
+          python -m venv /tmp/clean
+          if [ -f /tmp/clean/bin/pip ]; then BIN=/tmp/clean/bin; else BIN=/tmp/clean/Scripts; fi
+          "$BIN/pip" install --quiet dist/*.whl
+          "$BIN/proofmark" venues okx
+          "$BIN/proofmark" --help > /dev/null
+          echo "console script works"

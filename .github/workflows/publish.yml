@@ -1,0 +1,74 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Trusted publishing, not an API token.
+#
+# PyPI can verify a short-lived OIDC identity issued by GitHub for this exact
+# repository and workflow, which means there is no long-lived secret stored in
+# the repo, nothing to rotate, and nothing to leak in a log. A stolen token
+# lets someone publish a package under your name; there is no token here to
+# steal.
+#
+# ONE-TIME SETUP ON PYPI, done by the account owner:
+#
+#   pypi.org  ->  Your projects  ->  Publishing  ->  Add a new pending publisher
+#     PyPI project name  proofmark
+#     Owner              coreyhiggins
+#     Repository         proofmark
+#     Workflow name      publish.yml
+#     Environment        pypi
+#
+# "Pending publisher" is the right choice before the first upload, because the
+# project does not exist on PyPI yet. After that first publish it becomes an
+# ordinary trusted publisher.
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install build twine
+      - run: python -m build
+
+      # Refuse to ship a package whose metadata PyPI would reject, and refuse
+      # to ship one whose command does not exist. Both have bitten this repo.
+      - run: twine check dist/*
+
+      - name: the wheel provides a working `proofmark` command
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet dist/*.whl
+          /tmp/clean/bin/proofmark venues okx > /dev/null
+          echo "console script present"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/proofmark
+    permissions:
+      # The whole point: a short-lived identity token, minted per run.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
