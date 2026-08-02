@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  no-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The core claims zero dependencies. That claim is worth checking, since
+      # it is the reason someone can drop these guards next to whatever engine
+      # they already run without inheriting a tree.
+      - name: core imports with nothing installed
+        run: |
+          pip install -e . --no-deps
+          python -c "
+          import proofmark
+          from proofmark import check, summarise, check_lookahead
+          assert proofmark.__version__
+          print('core imports clean with no dependencies')
+          "
+
+      - name: installed distribution declares no runtime requirements
+        run: |
+          python - <<'PY'
+          from importlib.metadata import requires
+          reqs = [r for r in (requires("proofmark") or []) if "extra ==" not in r]
+          assert not reqs, f"core gained a runtime dependency: {reqs}"
+          print("no unconditional runtime dependencies")
+          PY
+
+  guards-actually-fire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      # A guard that stops firing is a silent regression, and the whole
+      # product is the guards. This reconstructs the published backtest that
+      # motivated the project and fails if it becomes reportable.
+      - name: the motivating artifact stays suppressed
+        run: |
+          python - <<'PY'
+          from proofmark import summarise, check
+          equity = [1000.0]
+          for _ in range(45):
+              equity.append(equity[-1] * 1.0027)
+          result = summarise(equity, trade_pnls=[2.7] * 45)
+          verdict = check(result, trials=270, costs_applied=0.0, delisted_included=False)
+          assert not verdict.reportable, "a 100% win rate backtest became reportable"
+          codes = {f.code for f in verdict.fatal}
+          for expected in {"zero-drawdown", "perfect-win-rate", "no-costs-applied",
+                           "search-without-correction", "survivors-only"}:
+              assert expected in codes, f"guard stopped firing: {expected}"
+          assert result.sortino is None and result.calmar is None, "a sentinel crept back in"
+          print(f"suppressed with {len(codes)} fatal findings")
+          PY
