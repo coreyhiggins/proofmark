@@ -539,3 +539,35 @@ def test_the_server_is_listening_before_a_window_would_open(tmp_path):
     start_server(port)
     with _s.socket() as probe:
         assert probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+# --------------------------------------------------------------- update ----
+
+from proofmark.update import _asset_pattern, _parse
+
+
+def test_versions_sort_numerically_not_as_text():
+    # The bug this prevents: "1.9" > "1.12" as strings, so an updater that
+    # compares text tells everyone on 1.12 they are behind, forever.
+    assert _parse("v1.12.0") > _parse("v1.9.0")
+    assert _parse("0.10.0") > _parse("0.9.9")
+    assert _parse("v2.0.0") > _parse("1.99.99")
+
+
+def test_equal_versions_do_not_offer_an_update():
+    assert not (_parse("v0.2.0") > _parse("0.2.0"))
+
+
+def test_a_prerelease_suffix_does_not_break_the_parse():
+    assert _parse("v1.2.3-rc.1") == (1, 2, 3)
+
+
+def test_junk_never_raises():
+    assert _parse("") == (0,)
+    assert _parse("not-a-version") == (0,)
+
+
+def test_the_asset_pattern_matches_what_the_release_actually_publishes():
+    # Release artifacts are named proofmark-{windows,macos,linux}-*, so the
+    # pattern has to be one of those three or the updater finds nothing.
+    assert _asset_pattern() in ("windows", "macos", "linux")

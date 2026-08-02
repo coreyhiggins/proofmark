@@ -97,10 +97,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                      help="interface to bind. Leave this alone unless you are in a "
                           "container: the page has no password.")
 
+    upd = sub.add_parser("update", help="check for and install a newer version")
+    upd.add_argument("--check", action="store_true", help="only report, do not install")
+
     venues_cmd = sub.add_parser("venues", help="what each exchange actually gives you")
     venues_cmd.add_argument("venue", nargs="?", help="one venue, or omit for all")
 
     args = parser.parse_args(argv)
+
+    if args.command == "update":
+        from .update import run_update
+        return run_update(check_only=args.check)
 
     if args.command == "venues":
         from .venues import VENUES, describe

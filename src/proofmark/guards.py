@@ -78,6 +78,7 @@ def check(
     trials: int = 1,
     costs_applied: float | None = None,
     delisted_included: bool | None = None,
+    benchmark_return: float | None = None,
 ) -> Verdict:
     """Decide whether a backtest result may be reported.
 
@@ -130,6 +131,30 @@ def check(
             "funding rates and discarded them for months because of timestamp "
             "jitter, and no backtest ever noticed.",
         ))
+
+    # ----------------------------------------------------- beaten by nothing --
+
+    if benchmark_return is not None:
+        gap = result.total_return - benchmark_return
+        if gap < 0:
+            add(Finding(
+                Severity.FATAL, "beaten-by-holding",
+                f"buying once and holding returned {benchmark_return:.1%}, "
+                f"against {result.total_return:.1%} here, so the strategy cost "
+                f"{abs(gap):.1%}",
+                "This is the comparison that decides whether a strategy was worth "
+                "running, and it is the one most reports leave out. A widely shared "
+                "test of twelve famous strategies against one asset found eleven of "
+                "them lost to doing nothing, and the headline was about the "
+                "twelfth. Trading was worse than not trading.",
+            ))
+        elif gap < 0.05:
+            add(Finding(
+                Severity.WARN, "barely-beat-holding",
+                f"ahead of buying and holding by {gap:.1%}",
+                "A margin this thin does not survive a fee schedule, a worse fill, "
+                "or a different starting date. Treat it as a tie.",
+            ))
 
     # ------------------------------------------------------------ undefined --
 

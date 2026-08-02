@@ -121,7 +121,52 @@ Sampling detectors that ship elsewhere admit the problem in their own docs:
 to a false-negative, i.e. the strategy will be reported as non-biased."* This
 one tests every bar by default. If you pass `sample`, the report says so.
 
-## If you do not write Python
+## Install on Windows
+
+```powershell
+irm https://raw.githubusercontent.com/coreyhiggins/proofmark/main/install.ps1 -OutFile install.ps1
+notepad install.ps1
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Three lines rather than one, deliberately. Piping a script straight into a
+shell teaches people to run code they have not read, and the next thing they
+pipe might not be this.
+
+It needs **no administrator rights**, installs into your own user folder, adds
+itself to **your** PATH rather than the machine's, and puts a shortcut in the
+Start Menu. Uninstalling is one command, printed at the end.
+
+Then open it from the Start Menu, or:
+
+```powershell
+proofmark app        # its own window, no browser
+proofmark gui        # serve the page for your own browser instead
+proofmark update     # check for and install a newer version
+```
+
+All of it is free. No account, no service, no paid tier. Updates come from the
+public GitHub releases API and only when you ask, because a tool that phones
+home on startup has decided for you what your machine talks to.
+
+<details>
+<summary><strong>The Windows warning you will see, and why</strong></summary>
+
+The first time you run it, Windows says **"Windows protected your PC"**. Click
+**More info**, then **Run anyway**.
+
+That appears because the file is not code-signed. A certificate costs a few
+hundred dollars a year and needs a registered identity, and we have not spent
+it. It is also **exactly** the warning you should heed for a file you were not
+expecting, so the honest answer is that this is what unsigned looks like and
+you should decide accordingly.
+
+If you would rather not, install with `pip` below and read the source you are
+running.
+
+</details>
+
+## macOS and Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/coreyhiggins/proofmark/main/install.sh -o install.sh
@@ -129,85 +174,21 @@ less install.sh
 sh install.sh
 ```
 
-Three lines instead of one, deliberately. The installer refuses to run from a
-pipe unless you pass `--yes`, because `curl | sh` teaches people to execute
-code they have not read, and the next thing they pipe into a shell might not
-be this. It uses no `sudo`, touches no system Python, and writes only inside
-`~/.local`.
+macOS refuses to open an unsigned binary until you right-click and choose Open.
 
-For a VPS or a dedicated server:
+## On a server
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 proofmark
 ```
 
-Publishing the port to `127.0.0.1` rather than `0.0.0.0` keeps it off the
-public internet. There is a systemd unit in [`deploy/`](deploy/) that does the
-same, with the sandboxing flags set. The page has **no authentication**, so if
-you need it from another machine, tunnel rather than expose it:
+Publishing to `127.0.0.1` keeps it off the public internet. There is a systemd
+unit in [`deploy/`](deploy/) with the sandboxing flags set. The page has **no
+authentication**, so reach it over a tunnel rather than exposing it:
 
 ```bash
 ssh -N -L 8765:127.0.0.1:8765 you@your-server
 ```
-
-Or download a build from
-[Releases](https://github.com/coreyhiggins/proofmark/releases) and double-click
-it. No Python, no terminal.
-
-<details>
-<summary><strong>Windows, step by step</strong></summary>
-
-1. Download `proofmark-windows-x64.exe` from
-   [Releases](https://github.com/coreyhiggins/proofmark/releases).
-2. Double-click it. **Windows will show a blue box saying "Windows protected
-   your PC".** Click **More info**, then **Run anyway**.
-3. A black terminal window opens and your browser opens to the page. Leave the
-   black window alone; closing it stops the program.
-
-That blue box appears because the file is not code-signed, which costs money
-per year and requires a registered identity. It is not a sign anything is
-wrong with this file, and it is also **exactly** the warning you should heed
-for a file you did not expect. If that trade-off bothers you, install with
-`pip` instead and read the source you are running.
-
-Windows Defender may also scan it on first run, which can take twenty seconds
-or so. That is normal for a fresh unsigned executable and only happens once.
-
-**Nothing you enter is uploaded.** The program opens a page served from your
-own machine, on an address only your machine can reach.
-
-</details>
-
-> **The macOS and Linux builds are not signed either.** macOS will refuse to
-> open it until you right-click and choose Open.
-
-If you already have Python:
-
-```bash
-pip install "proofmark @ git+https://github.com/coreyhiggins/proofmark"
-proofmark gui
-```
-
-(Installing straight from git until this is on PyPI. The installer script and
-the desktop builds above both work today.)
-
-That opens a page in your browser. Paste your account balance over time, say
-how many versions you tried, and it tells you in plain language whether the
-numbers are safe to believe.
-
-It runs entirely on your machine. Nothing you paste is uploaded, stored or
-sent anywhere, because an equity curve is a record of your money.
-
-There is a terminal version too, which exits non-zero when a result is
-suppressed so it can gate a pipeline:
-
-```bash
-proofmark check results.csv --trials 40 --costs 84.20 --delisted yes
-```
-
-It is forgiving about column names. `equity`, `balance`, `nav`, `value`,
-`portfolio_value` all work, currency symbols and thousands separators are
-stripped, and a single-column file is read as the curve.
 
 ## Install as a library
 
