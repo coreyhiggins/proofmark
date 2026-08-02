@@ -30,6 +30,11 @@ dependencies = []
 proofmark = "proofmark.cli:main"
 
 [project.optional-dependencies]
+# A real window instead of a browser tab. Uses the platform webview, which on
+# Windows is the Edge WebView2 runtime that ships with the OS, so this adds a
+# thin binding rather than a browser engine. Optional on purpose: the library
+# and the CLI stay dependency-free.
+desktop = ["pywebview>=5.0"]
 crypto = ["ccxt>=4.4"]
 equities = ["alpaca-py>=0.30"]
 dev = ["pytest>=8.0"]

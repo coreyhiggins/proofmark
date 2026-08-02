@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install -e . pyinstaller
+      - run: pip install -e ".[desktop]" pyinstaller
 
       - name: build
         run: >
@@ -45,11 +45,15 @@ jobs:
           --console
           --clean
           --noconfirm
+          --collect-all webview
 
       # A binary that does not start is worse than no binary, and the failure
       # mode is silent for someone who double-clicks it. Prove it runs.
       - name: the binary actually starts and serves
         shell: bash
+        env:
+          # No display on a build runner, so serve without drawing a window.
+          PROOFMARK_NO_WINDOW: "1"
         run: |
           ./dist/${{ matrix.binary }} &
           pid=$!

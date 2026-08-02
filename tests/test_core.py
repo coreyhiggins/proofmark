@@ -513,3 +513,29 @@ def test_decisions_come_back_newest_first(tmp_path):
     ])
     order = [d["symbol"] for d in _live_payload(str(path))["decisions"]]
     assert order == ["NEW", "OLD"]
+
+
+# -------------------------------------------------------------- desktop ----
+
+from proofmark.desktop import free_port, start_server
+
+
+def test_a_busy_port_is_stepped_over():
+    import socket as _s
+    holder = _s.socket()
+    holder.bind(("127.0.0.1", 8765))
+    holder.listen(1)
+    try:
+        # Refusing to start because something holds 8765 is not an acceptable
+        # outcome for a program somebody double-clicked.
+        assert free_port(8765) != 8765
+    finally:
+        holder.close()
+
+
+def test_the_server_is_listening_before_a_window_would_open(tmp_path):
+    import socket as _s
+    port = free_port(8901)
+    start_server(port)
+    with _s.socket() as probe:
+        assert probe.connect_ex(("127.0.0.1", port)) == 0

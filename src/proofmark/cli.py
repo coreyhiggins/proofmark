@@ -84,7 +84,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     run.add_argument("--delisted", choices=["yes", "no"], default=None,
                      help="whether the universe includes assets that no longer exist")
 
-    gui = sub.add_parser("gui", help="open the local page in a browser")
+    app = sub.add_parser("app", help="open proofmark in its own window (recommended)")
+    app.add_argument("--state", default=None,
+                     help="path to a state file your bot writes, to enable the live view")
+
+    gui = sub.add_parser("gui", help="serve the page and open it in your browser instead")
     gui.add_argument("--port", type=int, default=8765)
     gui.add_argument("--no-browser", action="store_true")
     gui.add_argument("--state", default=None,
@@ -106,6 +110,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(describe(name))
             print()
         return 0
+
+    if args.command == "app":
+        from .desktop import run_window
+        return run_window(state_path=args.state)
 
     if args.command == "gui":
         from .gui import serve
