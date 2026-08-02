@@ -381,3 +381,46 @@ def test_local_data_does_not_claim_delisted_coverage():
 def test_a_universe_reports_survivors_only_loudly():
     u = from_bars([{"close": 1.0}], delisted_included=False)
     assert "SURVIVORS ONLY" in u.summary()
+
+
+# --------------------------------------------------------------- charts ----
+
+from proofmark.charts import buy_and_hold, equity_chart, underwater_chart
+
+
+def test_the_benchmark_is_drawn_and_the_gap_is_stated():
+    losing = [100.0 * (0.999 ** i) for i in range(200)]
+    winning = [100.0 * (1.002 ** i) for i in range(200)]
+    svg = equity_chart(losing, winning)
+    assert 'class="bench"' in svg
+    # The point of the chart: the shortfall is written out, not left to arithmetic.
+    assert "difference -" in svg
+
+
+def test_a_chart_without_a_benchmark_still_draws():
+    svg = equity_chart([100.0, 110.0, 105.0, 120.0])
+    assert 'class="subject"' in svg
+    assert 'class="bench"' not in svg
+
+
+def test_downsampling_keeps_the_crash():
+    # A single catastrophic bar in a long series must survive to the picture.
+    equity = [100.0] * 5000
+    equity[2500] = 10.0
+    svg = underwater_chart(equity)
+    assert "-90.0%" in svg
+
+
+def test_out_of_sample_windows_are_shaded():
+    svg = equity_chart([100.0 + i for i in range(100)], windows=[(0, 30), (30, 60), (60, 100)])
+    assert 'class="oos"' in svg
+
+
+def test_charts_refuse_to_draw_nothing():
+    assert equity_chart([100.0]) == ""
+    assert underwater_chart([]) == ""
+
+
+def test_buy_and_hold_tracks_the_close():
+    bars = [{"close": 100.0}, {"close": 110.0}, {"close": 90.0}]
+    assert buy_and_hold(bars, starting=1000.0) == [1000.0, 1100.0, 900.0]

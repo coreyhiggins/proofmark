@@ -24,6 +24,7 @@ import socketserver
 import webbrowser
 from typing import Any
 
+from .charts import equity_chart, underwater_chart
 from .page import PAGE
 from .guards import Severity, check
 from .metrics import summarise
@@ -60,8 +61,14 @@ def _analyse(payload: dict[str, Any]) -> dict[str, Any]:
             return "undefined"
         return f"{value:.1%}" if pct else f"{value:.2f}"
 
+    benchmark = [float(v) for v in payload.get("benchmark") or []]
+
     return {
         "reportable": verdict.reportable,
+        "charts": {
+            "equity": equity_chart(equity, benchmark or None),
+            "underwater": underwater_chart(equity),
+        },
         "findings": [
             {"severity": f.severity.value, "detail": f.detail, "why": f.why}
             # Fatal first: the thing that invalidates the run should be read first.

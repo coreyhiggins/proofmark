@@ -113,6 +113,26 @@ PAGE = """<!doctype html>
   ol.notes b { display:block; font-weight:600; margin-bottom:.3rem; }
   ol.notes p { margin:0; color:var(--soft); font-size:.96rem; }
 
+  .plate { margin-top:3.2rem; }
+  .plate h3 {
+    margin:0 0 .2rem; font:11px/1.4 var(--sans); letter-spacing:.13em;
+    text-transform:uppercase; color:var(--soft);
+    padding-bottom:.7rem; border-bottom:1px solid var(--ink);
+  }
+  svg.chart { display:block; width:100%; margin-top:1.1rem; overflow:visible; }
+  svg.chart .subject { fill:none; stroke:var(--ink); stroke-width:1.6;
+                       vector-effect:non-scaling-stroke; stroke-linejoin:round; }
+  svg.chart .bench { fill:none; stroke:var(--soft); stroke-width:1.2;
+                     stroke-dasharray:4 3; vector-effect:non-scaling-stroke; }
+  svg.chart .zero { stroke:var(--rule); stroke-width:1; vector-effect:non-scaling-stroke; }
+  svg.chart .underwater { fill:var(--fatal); fill-opacity:.16; stroke:var(--fatal);
+                          stroke-width:1.2; vector-effect:non-scaling-stroke; }
+  svg.chart .oos { fill:var(--ink); opacity:.045; }
+  .chart-caption {
+    margin:.55rem 0 0; font:11px/1.5 var(--sans); letter-spacing:.06em;
+    color:var(--soft); font-variant-numeric:tabular-nums;
+  }
+
   table { width:100%; border-collapse:collapse; margin-top:3.2rem; }
   caption {
     text-align:left; font:11px/1 var(--sans); letter-spacing:.13em;
@@ -159,21 +179,29 @@ PAGE = """<!doctype html>
     <textarea id="pnls" placeholder="120&#10;-45&#10;260&#10;-30"></textarea>
   </div>
 
+  <div class="field">
+    <p class="legend">III &nbsp; What holding would have done <span style="text-transform:none;letter-spacing:0">(optional)</span></p>
+    <p class="help">The same account starting the same day, buying once and doing
+      nothing. Paste it and both lines are drawn together, which is the only
+      comparison that says whether the strategy was worth running.</p>
+    <textarea id="benchmark" placeholder="10000&#10;10080&#10;10210&#10;10190"></textarea>
+  </div>
+
   <div class="pair">
     <div class="field">
-      <p class="legend"><label for="trials">III &nbsp; Versions tried</label></p>
+      <p class="legend"><label for="trials">IV &nbsp; Versions tried</label></p>
       <p class="help">Every parameter tweak counts as one.</p>
       <input id="trials" type="number" min="1" value="1">
     </div>
     <div class="field">
-      <p class="legend"><label for="costs">IV &nbsp; Fees and slippage paid</label></p>
+      <p class="legend"><label for="costs">V &nbsp; Fees and slippage paid</label></p>
       <p class="help">Leave blank if none were modelled.</p>
       <input id="costs" type="number" step="any" placeholder="84.20">
     </div>
   </div>
 
   <div class="field">
-    <p class="legend">V &nbsp; Did the data include assets that no longer exist?</p>
+    <p class="legend">VI &nbsp; Did the data include assets that no longer exist?</p>
     <div class="choices">
       <label><input type="radio" name="delisted" value="yes"> Yes</label>
       <label><input type="radio" name="delisted" value="no"> No, only what still trades</label>
@@ -204,6 +232,7 @@ document.getElementById('go').onclick = async () => {
   const body = {
     equity: nums(document.getElementById('equity').value),
     pnls: nums(document.getElementById('pnls').value),
+    benchmark: nums(document.getElementById('benchmark').value),
     trials: Number(document.getElementById('trials').value) || 1,
     costs: document.getElementById('costs').value === ''
       ? null : Number(document.getElementById('costs').value),
@@ -238,6 +267,13 @@ function render(d) {
         + (f.severity === 'fatal' ? 'Disqualifying' : 'Noted')
         + '</span><b>' + esc(f.detail) + '</b><p>' + esc(f.why) + '</p></li>';
     }).join('') + '</ol>';
+  }
+
+  if (d.charts && d.charts.equity) {
+    html += '<div class="plate"><h3>Account value over time</h3>' + d.charts.equity + '</div>';
+  }
+  if (d.charts && d.charts.underwater) {
+    html += '<div class="plate"><h3>Below the previous peak</h3>' + d.charts.underwater + '</div>';
   }
 
   html += '<table><caption>Measurements</caption><tbody>' + d.metrics.map(function (row) {
