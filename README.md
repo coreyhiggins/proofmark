@@ -164,9 +164,12 @@ it. No Python, no terminal.
 If you already have Python:
 
 ```bash
-pip install proofmark
+pip install "proofmark @ git+https://github.com/coreyhiggins/proofmark"
 proofmark gui
 ```
+
+(Installing straight from git until this is on PyPI. The installer script and
+the desktop builds above both work today.)
 
 That opens a page in your browser. Paste your account balance over time, say
 how many versions you tried, and it tells you in plain language whether the
@@ -186,10 +189,10 @@ It is forgiving about column names. `equity`, `balance`, `nav`, `value`,
 `portfolio_value` all work, currency symbols and thousands separators are
 stripped, and a single-column file is read as the curve.
 
-## Install
+## Install as a library
 
 ```bash
-pip install proofmark
+pip install "proofmark @ git+https://github.com/coreyhiggins/proofmark"
 ```
 
 The core has **no dependencies**. Guards, metrics and the lookahead detector
