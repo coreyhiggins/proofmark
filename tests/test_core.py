@@ -183,3 +183,157 @@ def test_the_detector_is_deterministic():
     first = check_lookahead(leaky_strategy, bars, seed=7)
     second = check_lookahead(leaky_strategy, bars, seed=7)
     assert [l.bar for l in first.leaks] == [l.bar for l in second.leaks]
+
+
+# ------------------------------------------------------------ walk-forward --
+
+from proofmark.walkforward import format_walk_forward, walk_forward
+
+
+def _trend_bars(n=600):
+    bars, price = [], 100.0
+    for i in range(n):
+        price *= 1.004 if (i // 40) % 2 == 0 else 0.997
+        bars.append({"timestamp": i, "open": price, "close": price * 1.001})
+    return bars
+
+
+def _stable_opt(train):
+    """Always picks the same answer. A genuinely stable parameter."""
+    return {"lookback": 20}, 8
+
+
+def _noisy_opt(train):
+    """Picks a wildly different answer each window. This is overfitting.
+
+    Derived from the window's start index so it is deterministic, and
+    deliberately alternating so the spread is unmistakable. The first version
+    of this fixture used a hash of the opening price and happened to land on
+    values that were stable enough to pass, which made the test prove nothing.
+    """
+    window = train[0]["timestamp"] // 120
+    return {"lookback": 5 if window % 2 == 0 else 90}, 40
+
+
+def _evaluate(test, params):
+    equity, pnls = [1000.0], []
+    for i in range(1, len(test)):
+        step = test[i]["close"] / test[i - 1]["close"]
+        equity.append(equity[-1] * (1 + (step - 1) * 0.5))
+        if i % 10 == 0:
+            pnls.append(equity[-1] - equity[-10])
+    return equity, pnls
+
+
+def test_walk_forward_reports_out_of_sample_only():
+    result = walk_forward(_trend_bars(), _stable_opt, _evaluate, windows=5)
+    assert len(result.windows) == 5
+    assert len(result.equity) > 100
+    assert result.metrics.trades > 0
+
+
+def test_total_trials_sums_across_windows():
+    result = walk_forward(_trend_bars(), _noisy_opt, _evaluate, windows=5)
+    assert result.total_trials == 200  # 40 candidates in each of 5 windows
+
+
+def test_a_stable_parameter_is_not_flagged():
+    result = walk_forward(_trend_bars(), _stable_opt, _evaluate, windows=5)
+    assert result.unstable_params() == []
+
+
+def test_an_unstable_parameter_is_flagged():
+    result = walk_forward(_trend_bars(), _noisy_opt, _evaluate, windows=5)
+    assert "lookback" in result.unstable_params()
+    assert "UNSTABLE" in format_walk_forward(result)
+
+
+def test_anchored_training_grows_from_the_start():
+    result = walk_forward(_trend_bars(), _stable_opt, _evaluate, windows=4, anchored=True)
+    assert all(w.train_start == 0 for w in result.windows)
+
+
+def test_rolling_is_the_default():
+    result = walk_forward(_trend_bars(), _stable_opt, _evaluate, windows=4)
+    assert result.windows[-1].train_start > 0
+
+
+def test_too_little_data_is_refused_rather_than_guessed_at():
+    with pytest.raises(ValueError, match="too few to measure"):
+        walk_forward(_trend_bars(40), _stable_opt, _evaluate, windows=5)
+
+
+def test_one_window_is_refused():
+    with pytest.raises(ValueError, match="at least two windows"):
+        walk_forward(_trend_bars(), _stable_opt, _evaluate, windows=1)
+
+
+def test_walk_forward_trials_feed_the_guards():
+    result = walk_forward(_trend_bars(), _noisy_opt, _evaluate, windows=5)
+    verdict = check(result.metrics, trials=result.total_trials,
+                    costs_applied=1.0, delisted_included=True)
+    assert not verdict.reportable
+    assert any(f.code == "search-without-correction" for f in verdict.fatal)
+
+
+# ------------------------------------------------------- short series ------
+
+from proofmark.metrics import MIN_OBSERVATIONS
+
+
+def test_a_short_series_reports_no_ratios_rather_than_absurd_ones():
+    # Found by using the CLI: 6 daily returns scaled by sqrt(252) gave a
+    # Sharpe of 4.60 on an unremarkable curve, which tripped a fatal guard.
+    equity = [10000, 9800, 10100, 9950, 10300, 10150, 10400]
+    result = summarise(equity, [])
+    assert result.sharpe is None
+    assert result.sortino is None
+    assert result.calmar is None
+    assert check(result, costs_applied=12.5, delisted_included=True).reportable
+
+
+def test_a_long_enough_series_still_reports_ratios():
+    equity = [1000.0]
+    for step in [1.01, 0.99, 1.02, 0.98] * 15:
+        equity.append(equity[-1] * step)
+    result = summarise(equity, [])
+    assert len(equity) > MIN_OBSERVATIONS
+    assert result.sharpe is not None
+
+
+# ------------------------------------------------------------ consumer -----
+
+from proofmark.cli import _read_csv
+from proofmark.gui import _analyse
+
+
+def test_csv_column_names_are_matched_forgivingly(tmp_path):
+    f = tmp_path / "r.csv"
+    f.write_text("Date,Portfolio Value,Profit\n2026-01-01,\"10,000\",\n2026-01-02,$10120,120\n")
+    equity, pnls = _read_csv(f)
+    assert equity == [10000.0, 10120.0]
+    assert pnls == [120.0]
+
+
+def test_a_single_column_file_is_treated_as_the_curve(tmp_path):
+    f = tmp_path / "r.csv"
+    f.write_text("10000\n10120\n9980\n")
+    equity, _ = _read_csv(f)
+    assert equity == [10000.0, 10120.0, 9980.0]
+
+
+def test_gui_rejects_a_curve_too_short_to_measure():
+    assert "at least two" in _analyse({"equity": [100.0]})["error"]
+
+
+def test_gui_rejects_non_positive_balances():
+    assert "above zero" in _analyse({"equity": [100.0, 0.0, 50.0]})["error"]
+
+
+def test_gui_returns_findings_with_fatal_first():
+    payload = {"equity": [1000.0 * (1.003 ** i) for i in range(46)],
+               "pnls": [2.7] * 45, "trials": 270, "costs": 0.0, "delisted": "no"}
+    out = _analyse(payload)
+    assert out["reportable"] is False
+    assert out["findings"][0]["severity"] == "fatal"
+    assert any(k == "Sortino" and v == "undefined" for k, v in out["metrics"])

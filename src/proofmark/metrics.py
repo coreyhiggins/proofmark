@@ -29,6 +29,14 @@ from typing import Sequence
 
 TRADING_DAYS = 252
 
+# Below this many return observations, an annualised ratio is not a
+# measurement. Six daily returns scaled by sqrt(252) produced a Sharpe of 4.60
+# on a deliberately unremarkable equity curve during testing, which then
+# tripped the implausible-Sharpe guard. The curve was fine. The ratio was
+# meaningless, and a meaningless number that looks precise is exactly what
+# this library exists to stop printing.
+MIN_OBSERVATIONS = 30
+
 
 @dataclass(frozen=True)
 class Metrics:
@@ -79,7 +87,7 @@ def sharpe(returns: Sequence[float], bars_per_year: int = TRADING_DAYS) -> float
     Zero volatility is not an infinitely good strategy. It means the equity
     curve never moved, which is a strategy that did not trade or a bug.
     """
-    if len(returns) < 2:
+    if len(returns) < MIN_OBSERVATIONS:
         return None
     mean, stdev = _annualised(returns, bars_per_year)
     if stdev == 0:
@@ -93,7 +101,7 @@ def sortino(returns: Sequence[float], bars_per_year: int = TRADING_DAYS) -> floa
     No losing bars means the denominator is zero. The honest answer is that
     the ratio does not exist, not that it is enormous and not that it is -100.
     """
-    if len(returns) < 2:
+    if len(returns) < MIN_OBSERVATIONS:
         return None
     downside = [r for r in returns if r < 0]
     if not downside:
@@ -105,9 +113,14 @@ def sortino(returns: Sequence[float], bars_per_year: int = TRADING_DAYS) -> floa
     return mean / dd
 
 
-def calmar(total_return: float, max_dd: float, years: float) -> float | None:
-    """Annualised return over maximum drawdown, or ``None`` when there was none."""
-    if max_dd <= 0 or years <= 0:
+def calmar(total_return: float, max_dd: float, years: float,
+           observations: int = MIN_OBSERVATIONS) -> float | None:
+    """Annualised return over maximum drawdown, or ``None`` when undefined.
+
+    Also ``None`` on too short a series: compounding a few days of return out
+    to a full year produces an enormous figure that describes nothing.
+    """
+    if max_dd <= 0 or years <= 0 or observations < MIN_OBSERVATIONS:
         return None
     annualised = (1 + total_return) ** (1 / years) - 1
     return annualised / max_dd
@@ -147,7 +160,7 @@ def summarise(
         max_drawdown=max_dd,
         sharpe=sharpe(returns, bars_per_year),
         sortino=sortino(returns, bars_per_year),
-        calmar=calmar(total, max_dd, years),
+        calmar=calmar(total, max_dd, years, len(returns)),
         win_rate=(wins / len(trade_pnls)) if trade_pnls else None,
         profit_factor=profit_factor(trade_pnls),
     )

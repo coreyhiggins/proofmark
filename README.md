@@ -121,6 +121,31 @@ Sampling detectors that ship elsewhere admit the problem in their own docs:
 to a false-negative, i.e. the strategy will be reported as non-biased."* This
 one tests every bar by default. If you pass `sample`, the report says so.
 
+## If you do not write Python
+
+```bash
+pip install proofmark
+proofmark gui
+```
+
+That opens a page in your browser. Paste your account balance over time, say
+how many versions you tried, and it tells you in plain language whether the
+numbers are safe to believe.
+
+It runs entirely on your machine. Nothing you paste is uploaded, stored or
+sent anywhere, because an equity curve is a record of your money.
+
+There is a terminal version too, which exits non-zero when a result is
+suppressed so it can gate a pipeline:
+
+```bash
+proofmark check results.csv --trials 40 --costs 84.20 --delisted yes
+```
+
+It is forgiving about column names. `equity`, `balance`, `nav`, `value`,
+`portfolio_value` all work, currency symbols and thousands separators are
+stripped, and a single-column file is read as the curve.
+
 ## Install
 
 ```bash
@@ -133,6 +158,40 @@ you already use rather than migrating to this one.
 
 Exchange and data adapters live behind extras: `proofmark[crypto]`,
 `proofmark[equities]`.
+
+## Walk-forward is the primary verb
+
+```python
+from proofmark.walkforward import walk_forward, format_walk_forward
+
+result = walk_forward(bars, optimize=my_optimizer, evaluate=my_backtest, windows=5)
+print(format_walk_forward(result))
+```
+
+Fit on a window, measure on the window after it, never look back. The returned
+equity curve is the concatenation of segments the optimiser never saw, so the
+number is out-of-sample by construction rather than by your own discipline.
+There is deliberately no way to ask this function for in-sample performance. A
+number you cannot get is a number you cannot accidentally publish.
+
+Trials sum across windows and feed the guards automatically. Optimising 40
+variants in each of 6 windows is a 240-trial search, not a 40-trial one.
+
+**Parameter stability is reported, and it is the part nobody shows:**
+
+```
+  parameter stability across windows
+    lookback         mean 47.5, range 5 to 90, variation 0.89  UNSTABLE
+
+  lookback changed by more than half its own mean between windows. An
+  optimiser that picks a different answer every time it looks is fitting
+  noise, and the out-of-sample curve above is closer to luck than to evidence.
+```
+
+If the best lookback is 5 bars in one window and 90 in the next, the optimiser
+is not finding a parameter. It is finding whatever fit the noise in front of
+it. That is visible for free once the windows have run, and it is a more
+honest signal than any single ratio.
 
 ## On the AI part
 
