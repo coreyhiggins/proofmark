@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import time
 from pathlib import Path
 from typing import Sequence
 
@@ -68,6 +69,77 @@ def _read_csv(path: Path) -> tuple[list[float], list[float]]:
     return numbers(equity_col), (numbers(pnl_col) if pnl_col is not None else [])
 
 
+def default_state_path() -> Path:
+    """Where a run writes its state when nobody says otherwise.
+
+    Beside the user's own files rather than in a temp directory, because a
+    paper run is a record someone may want tomorrow, and because the app has
+    to be able to find it without being told.
+    """
+    return Path.home() / ".proofmark" / "live.json"
+
+
+def _run_live(args) -> int:
+    from .runner import DEFAULT_FEE, DEFAULT_POLL_SECONDS, DEFAULT_SLIPPAGE, run_forever, run_once
+    from .strategies import describe_all
+
+    if args.list_strategies:
+        print()
+        print(describe_all())
+        print()
+        return 0
+
+    state_path = Path(args.state) if args.state else default_state_path()
+    fee = DEFAULT_FEE if args.fee is None else args.fee
+    slippage = DEFAULT_SLIPPAGE if args.slippage is None else args.slippage
+    every = DEFAULT_POLL_SECONDS if args.every is None else args.every
+
+    settings = dict(
+        venue=args.venue, symbol=args.symbol, timeframe=args.timeframe,
+        strategy=args.strategy, state_path=state_path, starting_cash=args.cash,
+        fee=fee, slippage=slippage,
+    )
+
+    print()
+    print(f"  paper trading {args.symbol} {args.timeframe} on {args.venue}")
+    print(f"  strategy      {args.strategy}")
+    print(f"  costs         {fee:.3%} fee and {slippage:.3%} slippage, per side")
+    print(f"  state         {state_path}")
+    print()
+    print("  No order can be placed from here. Watch it with:")
+    print(f"      proofmark app --state {state_path}")
+    print()
+
+    def report(run) -> None:
+        gap = run.total_return - run.benchmark_return
+        print(
+            f"  {time.strftime('%H:%M:%S')}  "
+            f"account {run.equity[-1]:,.2f}  "
+            f"return {run.total_return:+.2%}  "
+            f"holding {run.benchmark_return:+.2%}  "
+            f"difference {gap:+.2%}"
+        )
+
+    try:
+        if args.once:
+            report(run_once(**settings))
+            return 0
+        run_forever(**settings, poll_seconds=every, on_cycle=report)
+    except KeyboardInterrupt:
+        print("\n  stopped")
+        return 0
+    except ValueError as err:
+        print(f"  {err}")
+        return 1
+    except ImportError as err:
+        # ccxt lives behind an extra, so this is the expected failure for
+        # someone who installed the base package and typed the obvious command.
+        print(f"  {err}")
+        print("  Install the market data support with: pip install 'proofmark[crypto]'")
+        return 1
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="proofmark",
@@ -97,6 +169,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                      help="interface to bind. Leave this alone unless you are in a "
                           "container: the page has no password.")
 
+    live = sub.add_parser(
+        "run",
+        help="run a strategy on live market data, on paper, and watch it",
+        description="Paper trading against a live feed. No key is ever used that "
+                    "could place an order, and there is no flag that makes one.",
+    )
+    live.add_argument("--symbol", default="BTC/USDT")
+    live.add_argument("--venue", default="okx")
+    live.add_argument("--timeframe", default="1h")
+    live.add_argument("--strategy", default="ema-cross",
+                      help="one of the built-in rule sets, or --list-strategies")
+    live.add_argument("--cash", type=float, default=10_000.0,
+                      help="starting paper balance")
+    live.add_argument("--fee", type=float, default=None,
+                      help="fee per side as a fraction, e.g. 0.001 for 0.1 percent")
+    live.add_argument("--slippage", type=float, default=None,
+                      help="assumed slippage per side as a fraction")
+    live.add_argument("--every", type=int, default=None,
+                      help="seconds between polls")
+    live.add_argument("--state", default=None,
+                      help="where to write the state file the live view reads")
+    live.add_argument("--once", action="store_true",
+                      help="run one cycle and exit instead of polling")
+    live.add_argument("--list-strategies", action="store_true",
+                      help="print the built-in rule sets and stop")
+
     upd = sub.add_parser("update", help="check for and install a newer version")
     upd.add_argument("--check", action="store_true", help="only report, do not install")
 
@@ -118,14 +216,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             print()
         return 0
 
+    if args.command == "run":
+        return _run_live(args)
+
+    # If a run is already going and nobody passed --state, watch it anyway.
+    # Requiring the path means the live view is empty for the person who
+    # followed the two obvious commands in order, which reads as broken.
+    state = args.state if args.command in ("app", "gui") else None
+    if args.command in ("app", "gui") and not state:
+        default = default_state_path()
+        state = str(default) if default.exists() else None
+
     if args.command == "app":
         from .desktop import run_window
-        return run_window(state_path=args.state)
+        return run_window(state_path=state)
 
     if args.command == "gui":
         from .gui import serve
         serve(port=args.port, open_browser=not args.no_browser, host=args.host,
-              state_path=args.state)
+              state_path=state)
         return 0
 
     if args.command != "check":

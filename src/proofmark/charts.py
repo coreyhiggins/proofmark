@@ -173,15 +173,29 @@ def equity_chart(
     parts.append(_grid(lo, hi, HEIGHT))
 
     draw = ' class="subject drawn"' if animate else ' class="subject"'
+
+    # Both lines end near each other whenever the strategy tracks the market,
+    # which is most of the time, and two labels stacked on the same pixel is
+    # unreadable exactly when the comparison matters most. Push them apart.
+    y_sub = _y(strategy[-1], lo, hi, HEIGHT)
+    y_ben = _y(bench[-1], lo, hi, HEIGHT) if bench else None
+    sub_label_y, ben_label_y = y_sub + 16, (y_ben - 7) if y_ben is not None else 0.0
+    if y_ben is not None and abs(sub_label_y - ben_label_y) < 15:
+        # Whichever line finished higher gets the label above.
+        if y_sub <= y_ben:
+            sub_label_y, ben_label_y = y_sub - 8, y_ben + 17
+        else:
+            sub_label_y, ben_label_y = y_sub + 17, y_ben - 8
+
     if bench:
         parts.append(f'<path d="{_path(bench, lo, hi, HEIGHT)}" class="bench"/>')
         parts.append(
-            f'<text x="{WIDTH - PAD_R}" y="{_y(bench[-1], lo, hi, HEIGHT) - 7:.1f}" '
+            f'<text x="{WIDTH - PAD_R}" y="{ben_label_y:.1f}" '
             f'class="tag bench-tag" text-anchor="end">{benchmark_label}</text>'
         )
     parts.append(f'<path d="{_path(strategy, lo, hi, HEIGHT)}"{draw}/>')
     parts.append(
-        f'<text x="{WIDTH - PAD_R}" y="{_y(strategy[-1], lo, hi, HEIGHT) + 16:.1f}" '
+        f'<text x="{WIDTH - PAD_R}" y="{sub_label_y:.1f}" '
         f'class="tag subject-tag" text-anchor="end">your strategy</text>'
     )
 
@@ -242,6 +256,97 @@ def underwater_chart(equity: Sequence[float], *, animate: bool = True) -> str:
         f'<p class="chart-caption">worst {worst:.1%} below the previous peak</p>',
     ]
     return "".join(parts)
+
+
+def price_chart(
+    closes: Sequence[float],
+    marks: Sequence[tuple[int, str, float]] = (),
+    *,
+    label: str = "",
+    animate: bool = True,
+) -> str:
+    """Price over time, with the marks where the rules entered and exited.
+
+    The one chart a person actually asks for when they say "show me what the
+    bot is doing". Without it there is no way to tell a strategy correctly
+    sitting out a flat market from a data feed that died, and that is the first
+    question anyone has about a live run.
+
+    Marks are drawn as triangles rather than dots because entry and exit have
+    to be distinguishable in a screenshot, at a glance, in greyscale.
+    """
+    if len(closes) < 2:
+        return ""
+
+    # The marks index into the FULL series, so downsampling has to carry them
+    # along or every arrow slides off its candle.
+    series = list(closes)
+    keep = len(series)
+    scale = 1.0
+    if keep > MAX_POINTS:
+        series = _downsample(series)
+        scale = (len(series) - 1) / max(keep - 1, 1)
+
+    lo, hi = min(series), max(series)
+    pad = (hi - lo) * 0.1 or (hi * 0.01 or 1.0)
+    lo, hi = lo - pad, hi + pad
+
+    inner_w = WIDTH - PAD_L - PAD_R
+    step = inner_w / (len(series) - 1)
+
+    def x_at(i: int) -> float:
+        return PAD_L + min(i * scale, len(series) - 1) * step
+
+    parts = [
+        f'<svg viewBox="0 0 {WIDTH} {HEIGHT}" width="100%" height="{HEIGHT}" '
+        f'role="img" aria-label="Price over time with {len(marks)} entries and exits marked" '
+        'class="chart">'
+    ]
+
+    # Price levels, not percentages: on a price chart the number a person wants
+    # is the price.
+    span = hi - lo
+    tick = _nice_step(span / max(hi, 1e-9)) * max(hi, 1e-9)
+    level = lo + (tick - (lo % tick if tick else 0))
+    while tick and level < hi:
+        y = _y(level, lo, hi, HEIGHT)
+        parts.append(
+            f'<line x1="{PAD_L}" y1="{y:.1f}" x2="{WIDTH - PAD_R}" y2="{y:.1f}" class="grid"/>'
+            f'<text x="{PAD_L - 8}" y="{y + 3.5:.1f}" class="tick" text-anchor="end">'
+            f'{level:,.0f}</text>'
+        )
+        level += tick
+
+    path = "M" + "L".join(
+        f"{PAD_L + i * step:.2f},{_y(v, lo, hi, HEIGHT):.2f}" for i, v in enumerate(series)
+    )
+    parts.append(f'<path d="{path}" class="price{" drawn" if animate else ""}"/>')
+
+    for i, side, price in marks:
+        x, y = x_at(i), _y(price, lo, hi, HEIGHT)
+        # Buys point up from below the line, sells point down from above it, so
+        # direction reads without the colour.
+        if side == "buy":
+            tri = f"{x:.1f},{y - 4:.1f} {x - 5:.1f},{y + 5:.1f} {x + 5:.1f},{y + 5:.1f}"
+        else:
+            tri = f"{x:.1f},{y + 4:.1f} {x - 5:.1f},{y - 5:.1f} {x + 5:.1f},{y - 5:.1f}"
+        parts.append(f'<polygon points="{tri}" class="mark {side}"/>')
+
+    parts.append(
+        f'<text x="{PAD_L}" y="{HEIGHT - 8}" class="tick">{label or "start"}</text>'
+        f'<text x="{WIDTH - PAD_R}" y="{HEIGHT - 8}" class="tick" text-anchor="end">'
+        f'{len(closes)} closed bars</text>'
+        "</svg>"
+    )
+
+    buys = sum(1 for _, side, _ in marks if side == "buy")
+    sells = len(marks) - buys
+    caption = f"last {closes[-1]:,.2f}"
+    if marks:
+        caption += f" &nbsp;&middot;&nbsp; {buys} entries, {sells} exits"
+    else:
+        caption += " &nbsp;&middot;&nbsp; no trades taken yet"
+    return "".join(parts) + f'<p class="chart-caption">{caption}</p>'
 
 
 def buy_and_hold(bars: Sequence[dict], starting: float = 1.0) -> list[float]:

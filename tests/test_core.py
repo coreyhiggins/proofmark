@@ -779,3 +779,183 @@ def test_compare_endpoint_refuses_empty_input():
     from proofmark.gui import _compare
 
     assert "error" in _compare({"rows": "", "hold": 10})
+
+
+# ------------------------------------------------------------- runner ----
+
+from proofmark.runner import Paper, replay, open_positions
+from proofmark.strategies import BUILTIN, Signal, get_strategy
+
+
+def _ramp(n=60, start=100.0, step=1.0):
+    """Bars where the open of t+1 differs from the close of t, so a fill at the
+    wrong one is visible in the numbers rather than merely wrong in principle."""
+    bars = []
+    price = start
+    for i in range(n):
+        bars.append({
+            "timestamp": 1_700_000_000_000 + i * 3_600_000,
+            "open": price, "high": price + 2, "low": price - 2,
+            "close": price + 0.5, "volume": 10.0,
+        })
+        price += step
+    return bars
+
+
+def test_fill_happens_at_the_next_open_never_the_signal_bar_close():
+    """The one rule that separates an honest engine from a fantasy one."""
+    bars = _ramp()
+    fired = {"at": 12}
+
+    def once(seen):
+        return Signal("buy", "test") if len(seen) == fired["at"] else Signal("hold", "")
+
+    run = replay(bars, once, starting_cash=1000.0, fee=0.0, slippage=0.0, warmup=1)
+    fills = run.account.fills
+    assert len(fills) == 1
+    # Signal computed after seeing bars[0..11], so the fill is bars[12]'s OPEN.
+    assert fills[0].index == 12
+    assert fills[0].price == bars[12]["open"]
+    assert fills[0].price != bars[11]["close"]
+
+
+def test_costs_come_off_both_sides():
+    bars = _ramp()
+
+    def flip(seen):
+        if len(seen) == 5:
+            return Signal("buy", "in")
+        if len(seen) == 20:
+            return Signal("sell", "out")
+        return Signal("hold", "")
+
+    free = replay(bars, flip, starting_cash=1000.0, fee=0.0, slippage=0.0, warmup=1)
+    charged = replay(bars, flip, starting_cash=1000.0, fee=0.002, slippage=0.001, warmup=1)
+    assert len(charged.account.fills) == 2
+    assert charged.equity[-1] < free.equity[-1]
+
+
+def test_benchmark_is_tracked_without_being_asked_for():
+    run = replay(_ramp(), lambda seen: Signal("hold", ""), starting_cash=1000.0, warmup=1)
+    assert len(run.benchmark) == len(run.equity)
+    # Doing nothing leaves cash flat while holding rides the ramp up.
+    assert run.benchmark[-1] > run.benchmark[0]
+    assert run.equity[-1] == run.equity[0] == 1000.0
+
+
+def test_a_buy_is_not_queued_when_already_in_the_market():
+    """Otherwise the decision log reads like far more trading than happened."""
+    run = replay(_ramp(), lambda seen: Signal("buy", "always"), starting_cash=1000.0, warmup=1)
+    assert len(run.account.fills) == 1
+
+
+def test_open_position_reports_no_stop_because_there_is_none():
+    run = replay(_ramp(), lambda seen: Signal("buy", "in"), starting_cash=1000.0, warmup=1)
+    held = open_positions(run, "BTC/USDT")
+    assert len(held) == 1
+    assert held[0].protected is False
+
+
+def test_every_builtin_strategy_runs_and_only_looks_backwards():
+    bars = _ramp(120)
+    for name, strat in BUILTIN.items():
+        # Costs off, so the fill price is exactly the bar's open and any drift
+        # is a fill-timing bug rather than slippage doing its job.
+        run = replay(bars, strat.decide, starting_cash=1000.0, fee=0.0,
+                     slippage=0.0, warmup=strat.warmup, symbol="X")
+        assert len(run.equity) == len(bars), name
+        for fill in run.account.fills:
+            assert fill.price == bars[fill.index]["open"], name
+
+
+def test_builtin_strategies_pass_the_lookahead_property_test():
+    """The same check the library points at user strategies, aimed at its own."""
+    from proofmark.lookahead import check_lookahead
+
+    bars = _ramp(120)
+    for name, strat in BUILTIN.items():
+        # check_lookahead wants a vectorised strategy: the whole series in, one
+        # decision per bar out. Ours are event-driven, so this wraps them the
+        # exact way replay() calls them. That is the point of testing it here,
+        # since a leak could live in how the engine slices as easily as in the
+        # rules themselves.
+        # series[:i], not series[:i+1]. With executes_at="open", decisions[t]
+        # is the decision FILLED at bar t's open, so it may only have seen data
+        # through bar t-1. That is exactly replay()'s pending-signal shape: the
+        # rules run at the close of bar i and trade at the open of bar i+1.
+        # Passing series[:i+1] here fails this test, correctly, because it
+        # describes an engine that trades on a bar it has already seen.
+        def vectorised(series, _d=strat.decide):
+            return [_d(series[:i]).action for i in range(len(series))]
+
+        report = check_lookahead(vectorised, bars, executes_at="open")
+        assert report.clean, f"{name}: {report}"
+
+
+def test_unknown_strategy_names_the_alternatives():
+    with pytest.raises(ValueError, match="ema-cross"):
+        get_strategy("nope")
+
+
+def test_live_payload_carries_the_price_chart_and_the_gap(tmp_path):
+    """Through the server payload, because 'built but never wired' is the bug
+    this project keeps shipping: the guard existed, the page never called it."""
+    from proofmark.gui import _live_payload
+    from proofmark.live import Mark, write_state
+
+    path = tmp_path / "live.json"
+    write_state(
+        path,
+        equity=[100.0, 104.0, 99.0],
+        benchmark=[100.0, 106.0, 112.0],
+        closes=[10.0, 10.6, 11.2],
+        marks=[Mark(index=1, side="buy", price=10.6)],
+        label="X/Y 1h on nowhere",
+        strategy="ema-cross",
+    )
+
+    out = _live_payload(str(path))
+    assert out["present"] is True
+    assert "<svg" in out["price"]
+    assert "polygon" in out["price"]          # the entry mark is drawn
+    assert out["strategy"] == "ema-cross"
+
+    figures = dict(out["summary"])
+    assert figures["Return"] == "-1.0%"
+    assert figures["Holding"] == "+12.0%"
+    assert figures["Difference"] == "-13.0%"
+    # Losing to holding is a finding on a live run, not only in a backtest.
+    assert any("holding" in f["detail"] for f in out["verdict"])
+
+
+def test_live_payload_survives_a_bot_that_writes_only_the_old_fields(tmp_path):
+    """The state file is a public protocol. Someone integrated against the
+    version that had no closes, benchmark or marks, and that has to keep
+    working rather than throwing on a missing key."""
+    from proofmark.gui import _live_payload
+    from proofmark.live import write_state
+
+    path = tmp_path / "old.json"
+    write_state(path, equity=[100.0, 101.0, 102.0])
+    out = _live_payload(str(path))
+    assert out["present"] is True
+    assert out["price"] == ""
+    assert dict(out["summary"])["Return"] == "+2.0%"
+
+
+def test_marks_are_reindexed_when_the_bar_history_is_trimmed(tmp_path):
+    """Marks index into the bar list, so trimming without shifting them puts
+    every entry arrow on the wrong candle."""
+    from proofmark.live import MAX_BARS, Mark, read_state, write_state
+
+    closes = [float(i) for i in range(MAX_BARS + 50)]
+    path = tmp_path / "long.json"
+    write_state(path, equity=[1.0, 2.0], closes=closes,
+                marks=[Mark(index=len(closes) - 1, side="sell", price=9.0),
+                       Mark(index=3, side="buy", price=1.0)])
+
+    state = read_state(path)
+    assert len(state.closes) == MAX_BARS
+    # The last mark still points at the last kept bar.
+    assert [m.index for m in state.marks] == [MAX_BARS - 1]
+    assert state.closes[state.marks[0].index] == closes[-1]

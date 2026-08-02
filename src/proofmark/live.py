@@ -23,8 +23,21 @@ have drifted into territory the guards call impossible.
 It is not for deciding trades. A rules-based system exists precisely so that a
 person watching a screen does not override it at the worst moment, and a live
 dashboard is the most effective device ever invented for tempting them to. The
-page is built to be glanced at, not stared at, and it deliberately shows no
-prices you could trade on.
+page is built to be glanced at, not stared at.
+
+WHY THERE IS NOW A PRICE CHART, WHEN THERE DELIBERATELY WAS NOT.
+
+The first version of this file refused to show prices at all, on the argument
+that a chart is what tempts a person to intervene. That was half right and
+practically useless: without a price line you cannot tell a bot that is
+correctly sitting out a chop from a bot whose data feed died three hours ago,
+and "is it still working" is the actual question a live view has to answer.
+
+The resolution is that the chart shows what already happened. Closed bars, and
+the marks where the rules entered and exited, up to the last decision. It is a
+record of the run rather than a live tape, and there is no button anywhere on
+the page that places, closes or overrides an order. You can watch it. You
+cannot trade from it.
 """
 
 from __future__ import annotations
@@ -46,6 +59,24 @@ STALE_AFTER_SECONDS = 600
 # page stays glanceable.
 MAX_DECISIONS = 40
 MAX_EQUITY_POINTS = 5000
+
+# Enough bars to see the shape of the run and the marks on it. Past this the
+# file grows for no gain, because the chart downsamples anyway.
+MAX_BARS = 600
+
+
+@dataclass
+class Mark:
+    """Where the rules entered or exited, for drawing on the price chart.
+
+    ``index`` is a position in the bar list rather than a timestamp, because
+    the chart plots by bar and matching timestamps back to x-positions in the
+    browser is a second chance to be off by one.
+    """
+
+    index: int
+    side: str  # "buy" or "sell"
+    price: float
 
 
 @dataclass
@@ -95,6 +126,15 @@ class State:
     halt_reason: str = ""
     updated: float = field(default_factory=time.time)
 
+    # Everything below is optional, and a bot that writes none of it still gets
+    # a working page. That matters because the state file is a public protocol
+    # and someone's integration was written against the older, shorter version.
+    label: str = ""
+    strategy: str = ""
+    benchmark: list[float] = field(default_factory=list)
+    closes: list[float] = field(default_factory=list)
+    marks: list[Mark] = field(default_factory=list)
+
     @property
     def age(self) -> float:
         return max(0.0, time.time() - self.updated)
@@ -117,6 +157,11 @@ def write_state(
     decisions: list[Decision] | None = None,
     halted: bool = False,
     halt_reason: str = "",
+    label: str = "",
+    strategy: str = "",
+    benchmark: list[float] | None = None,
+    closes: list[float] | None = None,
+    marks: list[Mark] | None = None,
 ) -> None:
     """Write the state file. Call this at the end of every cycle.
 
@@ -136,6 +181,17 @@ def write_state(
         "halted": halted,
         "halt_reason": halt_reason,
         "updated": time.time(),
+        "label": label,
+        "strategy": strategy,
+        "benchmark": (benchmark or [])[-MAX_EQUITY_POINTS:],
+        "closes": (closes or [])[-MAX_BARS:],
+        # Marks index into the bar list, so trimming the bars has to shift them
+        # by the same amount or every entry arrow lands on the wrong candle.
+        "marks": [
+            {"index": m.index - max(0, len(closes or []) - MAX_BARS), "side": m.side, "price": m.price}
+            for m in (marks or [])
+            if m.index >= max(0, len(closes or []) - MAX_BARS)
+        ],
     }
 
     fd, tmp = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
@@ -191,6 +247,15 @@ def read_state(path: str | Path) -> State | None:
             halted=bool(raw.get("halted", False)),
             halt_reason=str(raw.get("halt_reason", "")),
             updated=float(raw.get("updated", 0)),
+            label=str(raw.get("label", "")),
+            strategy=str(raw.get("strategy", "")),
+            benchmark=[float(v) for v in raw.get("benchmark") or []],
+            closes=[float(v) for v in raw.get("closes") or []],
+            marks=[
+                Mark(index=int(m.get("index", 0)), side=str(m.get("side", "")),
+                     price=float(m.get("price", 0)))
+                for m in raw.get("marks") or []
+            ],
         )
     except (TypeError, ValueError):
         return None

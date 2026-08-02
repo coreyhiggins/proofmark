@@ -26,7 +26,7 @@ from typing import Any
 
 import time
 
-from .charts import equity_chart, underwater_chart
+from .charts import equity_chart, price_chart, underwater_chart
 from .compare import leaderboard_from_rows, parse_rows
 from .live import alerts, read_state
 from .livepage import LIVE_PAGE
@@ -135,6 +135,47 @@ def _compare(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _when(stamp: float) -> str:
+    """A decision's time, dated when it was not today."""
+    if not stamp:
+        return ""
+    moment = time.localtime(stamp)
+    today = time.localtime()
+    if (moment.tm_year, moment.tm_yday) == (today.tm_year, today.tm_yday):
+        return time.strftime("%H:%M", moment)
+    return time.strftime("%b %d %H:%M", moment)
+
+
+def _live_summary(state) -> list[list[str]]:
+    """The four numbers worth putting above the charts.
+
+    The gap against holding is one of them, and it is not the last one. A live
+    dashboard that reports a return without the comparison is telling you the
+    half of the story you already wanted to hear.
+    """
+    if len(state.equity) < 2 or not state.equity[0]:
+        return []
+
+    total = state.equity[-1] / state.equity[0] - 1
+    rows = [
+        ["Account", f"{state.equity[-1]:,.2f}"],
+        ["Return", f"{total:+.1%}"],
+    ]
+
+    if len(state.benchmark) >= 2 and state.benchmark[0]:
+        held = state.benchmark[-1] / state.benchmark[0] - 1
+        rows.append(["Holding", f"{held:+.1%}"])
+        rows.append(["Difference", f"{total - held:+.1%}"])
+
+    peak = state.equity[0]
+    worst = 0.0
+    for value in state.equity:
+        peak = max(peak, value)
+        worst = min(worst, (value - peak) / peak if peak else 0.0)
+    rows.append(["Worst drop", f"{worst:.1%}"])
+    return rows
+
+
 def _live_payload(path: str | None) -> dict[str, Any]:
     """Everything the live page needs, in one poll.
 
@@ -158,9 +199,19 @@ def _live_payload(path: str | None) -> dict[str, Any]:
     verdict_findings: list[dict[str, str]] = []
     chart = ""
     if len(state.equity) >= 2:
-        chart = equity_chart(state.equity)
+        chart = equity_chart(state.equity, state.benchmark or None, animate=False)
         try:
-            live = check(summarise(state.equity, []), delisted_included=True)
+            # The benchmark goes in here too. A live run that is behind buying
+            # and holding is the same finding as a backtest that is, and the
+            # live one is the version costing real money right now.
+            bench_return = None
+            if len(state.benchmark) >= 2 and state.benchmark[0]:
+                bench_return = state.benchmark[-1] / state.benchmark[0] - 1
+            live = check(
+                summarise(state.equity, []),
+                delisted_included=True,
+                benchmark_return=bench_return,
+            )
             verdict_findings = [
                 {"severity": f.severity.value, "detail": f.detail, "why": f.why}
                 for f in live.fatal
@@ -168,14 +219,30 @@ def _live_payload(path: str | None) -> dict[str, Any]:
         except ValueError:
             verdict_findings = []
 
+    # Animation off on every live chart. These redraw on a timer, and a line
+    # that restarts its draw-on every few seconds is a strobe, not a flourish.
+    price = ""
+    if len(state.closes) >= 2:
+        price = price_chart(
+            state.closes,
+            [(m.index, m.side, m.price) for m in state.marks],
+            label=state.label,
+            animate=False,
+        )
+
     return {
         "present": True,
         "mode": state.mode,
         "age": state.age,
         "stale": state.stale,
+        "label": state.label,
+        "strategy": state.strategy,
         "alerts": [list(a) for a in alerts(state)],
         "verdict": verdict_findings,
         "chart": chart,
+        "price": price,
+        "underwater": underwater_chart(state.equity, animate=False) if len(state.equity) >= 2 else "",
+        "summary": _live_summary(state),
         "positions": [
             {
                 "symbol": p.symbol, "quantity": p.quantity, "entry": p.entry,
@@ -185,7 +252,11 @@ def _live_payload(path: str | None) -> dict[str, Any]:
         ],
         "decisions": [
             {
-                "clock": time.strftime("%H:%M:%S", time.localtime(d.time)) if d.time else "",
+                # A bare clock time is unreadable on a run spanning days: the
+                # column reads 00:00, 01:00, 05:00, 03:00 and looks shuffled
+                # when it is simply four different dates. Date it unless it
+                # happened today.
+                "clock": _when(d.time),
                 "symbol": d.symbol, "action": d.action, "reason": d.reason,
             }
             # Newest first: the last thing it decided is the thing you came for.

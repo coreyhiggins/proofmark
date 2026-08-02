@@ -7,12 +7,14 @@ The core has no dependencies and runs on plain sequences of mappings, so you
 can point it at whatever engine you already use.
 """
 
-from .charts import buy_and_hold, equity_chart, underwater_chart
+from .charts import buy_and_hold, equity_chart, price_chart, underwater_chart
 from .compare import Leaderboard, format_leaderboard, leaderboard
 from .guards import Finding, Severity, Verdict, check, format_verdict
 from .lookahead import LookaheadReport, assert_no_lookahead, check_lookahead
-from .live import Decision, Position, State, read_state, write_state
+from .live import Decision, Mark, Position, State, read_state, write_state
 from .metrics import Metrics, equity_drawdown, summarise
+from .runner import Paper, Run, replay
+from .strategies import BUILTIN, Signal, Strategy, describe_all, get_strategy
 from .timeframes import SweepResult, format_sweep, resample, sweep
 from .venues import VENUES, describe, venue
 from .walkforward import WalkForwardResult, format_walk_forward, walk_forward
@@ -26,25 +28,35 @@ __version__ = "0.2.0"
 
 __all__ = [
     "VENUES",
+    "BUILTIN",
     "Decision",
     "Finding",
     "Leaderboard",
     "LookaheadReport",
+    "Mark",
     "Metrics",
+    "Paper",
     "Position",
+    "Run",
     "Severity",
+    "Signal",
     "State",
+    "Strategy",
     "SweepResult",
     "Verdict",
     "WalkForwardResult",
     "assert_no_lookahead",
     "buy_and_hold",
     "describe",
+    "describe_all",
     "equity_chart",
+    "get_strategy",
     "format_leaderboard",
     "format_sweep",
     "format_walk_forward",
     "leaderboard",
+    "price_chart",
+    "replay",
     "resample",
     "sweep",
     "read_state",
