@@ -154,12 +154,32 @@ Or download a build from
 [Releases](https://github.com/coreyhiggins/proofmark/releases) and double-click
 it. No Python, no terminal.
 
-> **These builds are not code-signed.** Windows SmartScreen will warn you, and
-> macOS will refuse to open it until you right-click and choose Open. That is
-> what an unsigned binary looks like, not a sign anything is wrong, and you
-> should treat every unsigned binary from the internet with exactly that
-> suspicion. If you would rather not, use `pip` or the installer above, where
-> you can read what you are running.
+<details>
+<summary><strong>Windows, step by step</strong></summary>
+
+1. Download `proofmark-windows-x64.exe` from
+   [Releases](https://github.com/coreyhiggins/proofmark/releases).
+2. Double-click it. **Windows will show a blue box saying "Windows protected
+   your PC".** Click **More info**, then **Run anyway**.
+3. A black terminal window opens and your browser opens to the page. Leave the
+   black window alone; closing it stops the program.
+
+That blue box appears because the file is not code-signed, which costs money
+per year and requires a registered identity. It is not a sign anything is
+wrong with this file, and it is also **exactly** the warning you should heed
+for a file you did not expect. If that trade-off bothers you, install with
+`pip` instead and read the source you are running.
+
+Windows Defender may also scan it on first run, which can take twenty seconds
+or so. That is normal for a fresh unsigned executable and only happens once.
+
+**Nothing you enter is uploaded.** The program opens a page served from your
+own machine, on an address only your machine can reach.
+
+</details>
+
+> **The macOS and Linux builds are not signed either.** macOS will refuse to
+> open it until you right-click and choose Open.
 
 If you already have Python:
 
