@@ -54,8 +54,13 @@ def _downsample(values: Sequence[float], limit: int = MAX_POINTS) -> list[float]
         chunk = values[int(i * step):max(int((i + 1) * step), int(i * step) + 1)]
         if not chunk:
             continue
-        first = chunk[0]
-        out.append(max(chunk, key=lambda v: abs(v - first)))
+        # Furthest from the bucket's own mean, so a spike survives wherever it
+        # sits in the bucket. Measuring against the bucket's FIRST value looked
+        # equivalent and was not: when the crash was the first element, every
+        # calm value scored further from it and the crash was the one thing
+        # dropped. A 90% single-bar loss vanished from the picture entirely.
+        mean = sum(chunk) / len(chunk)
+        out.append(max(chunk, key=lambda v: abs(v - mean)))
     return out
 
 
