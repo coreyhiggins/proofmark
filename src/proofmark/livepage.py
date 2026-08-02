@@ -57,9 +57,14 @@ LIVE_PAGE = """<!doctype html>
   *,*::before,*::after { box-sizing:border-box; }
   body {
     margin:0; background:var(--bg); color:var(--ink);
-    font:16px/1.6 var(--sans); -webkit-font-smoothing:antialiased;
+    font:17px/1.65 var(--sans); -webkit-font-smoothing:antialiased;
   }
-  .wrap { max-width:47rem; margin:0 auto; padding:2.4rem 1.5rem 5rem; }
+  /* Wide on purpose. Every chart here is an SVG at width:100%, so the column
+     width IS the chart's font size: at 47rem the axis labels rendered around
+     11px and were genuinely hard to read on a large monitor. Prose gets its
+     own narrower cap below, so it does not become unreadable the other way. */
+  .wrap { max-width:68rem; margin:0 auto; padding:2.4rem 1.5rem 5rem; }
+  .card p.cap, .card .empty, .foot, .hint { max-width:56ch; }
 
   .top { display:flex; align-items:center; gap:.8rem; margin-bottom:1.6rem; }
   .stamp { width:32px; height:32px; flex:none; }
@@ -106,9 +111,9 @@ LIVE_PAGE = """<!doctype html>
     padding:1.2rem 1.35rem; margin-bottom:1.1rem;
   }
   .card h2 {
-    margin:0 0 .15rem; font:600 .82rem/1.4 var(--sans);
+    margin:0 0 .2rem; font:600 1rem/1.4 var(--sans);
   }
-  .card p.cap { margin:0 0 .2rem; font-size:.82rem; color:var(--soft); }
+  .card p.cap { margin:0 0 .2rem; font-size:.92rem; color:var(--soft); }
 
   .banner { border-radius:12px; padding:1rem 1.2rem; margin-bottom:1.1rem; }
   .banner h2 { margin:0 0 .2rem; font:600 1.05rem/1.35 var(--serif); }
@@ -121,19 +126,25 @@ LIVE_PAGE = """<!doctype html>
   .banner.warn h2 { color:var(--warn); }
   .banner p { color:var(--soft); }
 
-  .figures { display:grid; grid-template-columns:repeat(auto-fit,minmax(7.5rem,1fr)); gap:.7rem; }
+  .figures { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.8rem; }
   .fig { background:var(--raised); border-radius:10px; padding:.85rem .95rem; }
-  .fig dt { font:.75rem/1.3 var(--sans); color:var(--soft); margin-bottom:.25rem; }
-  .fig dd { margin:0; font:600 1.12rem/1.2 var(--mono); font-variant-numeric:tabular-nums; }
+  .fig dt { font:.82rem/1.3 var(--sans); color:var(--soft); margin-bottom:.3rem; }
+  .fig dd { margin:0; font:600 1.35rem/1.2 var(--mono); font-variant-numeric:tabular-nums; }
   .fig dd.up { color:var(--pass); }
   .fig dd.down { color:var(--fail); }
 
-  svg.chart { display:block; width:100%; margin-top:.9rem; overflow:visible; }
+    /* height:auto is doing real work here. The SVG carries height="260" as a
+     presentation attribute, and with the default preserveAspectRatio a 720x260
+     viewBox inside a 995px box scaled to min(1.38, 1.00) = 1.00 and centred
+     itself, leaving blank margins and drawing the chart at a third of the
+     available width. Letting the height come from the viewBox makes the chart
+     fill the card, and every label inside it grows with it. */
+  svg.chart { display:block; width:100%; height:auto; margin-top:.9rem; overflow:visible; }
   svg.chart .grid { stroke:var(--line); stroke-width:1; }
   svg.chart .base { stroke:var(--soft); stroke-width:1; stroke-dasharray:2 3; opacity:.7; }
-  svg.chart .tick { fill:var(--faint); font:11px var(--mono); font-variant-numeric:tabular-nums; }
+  svg.chart .tick { fill:var(--faint); font:13px var(--mono); font-variant-numeric:tabular-nums; }
   svg.chart .tick-base { fill:var(--soft); }
-  svg.chart .tag { font:600 11px var(--sans); letter-spacing:.03em; }
+  svg.chart .tag { font:600 13px var(--sans); letter-spacing:.03em; }
   svg.chart .bench-tag { fill:var(--soft); }
   svg.chart .subject-tag { fill:var(--brass); }
   svg.chart .subject { fill:none; stroke:var(--brass); stroke-width:2.2; stroke-linejoin:round; stroke-linecap:round; }
@@ -148,7 +159,7 @@ LIVE_PAGE = """<!doctype html>
   svg.chart .mark.buy { fill:var(--pass); }
   svg.chart .mark.sell { fill:var(--fail); }
 
-  .chart-caption { margin:.6rem 0 0; font:.82rem/1.5 var(--sans); color:var(--soft);
+  .chart-caption { margin:.7rem 0 0; font:.92rem/1.5 var(--sans); color:var(--soft);
                    font-variant-numeric:tabular-nums; }
 
   ol.notes { list-style:none; margin:0; padding:0; }
@@ -157,18 +168,18 @@ LIVE_PAGE = """<!doctype html>
   ol.notes b { display:block; font-weight:600; margin-bottom:.2rem; font-size:.95rem; }
   ol.notes p { margin:0; color:var(--soft); font-size:.88rem; }
 
-  table.rows { width:100%; border-collapse:collapse; font:500 .84rem/1.5 var(--sans);
+  table.rows { width:100%; border-collapse:collapse; font:500 .94rem/1.55 var(--sans);
                font-variant-numeric:tabular-nums; }
-  table.rows th { text-align:left; font:600 .68rem/1.4 var(--sans); letter-spacing:.09em;
+  table.rows th { text-align:left; font:600 .74rem/1.4 var(--sans); letter-spacing:.09em;
                   text-transform:uppercase; color:var(--faint); padding:0 .55rem .5rem;
                   border-bottom:1px solid var(--line); }
-  table.rows td { padding:.5rem .55rem; border-bottom:1px solid var(--line); }
+  table.rows td { padding:.62rem .6rem; border-bottom:1px solid var(--line); }
   table.rows tr:last-child td { border-bottom:0; }
   table.rows .n { text-align:right; }
   table.rows .up { color:var(--pass); }
   table.rows .down { color:var(--fail); }
   table.rows .flag { color:var(--warn); font-weight:600; }
-  .clock { color:var(--faint); font-family:var(--mono); font-size:.78rem; }
+  .clock { color:var(--faint); font-family:var(--mono); font-size:.86rem; white-space:nowrap; }
   .act { font-weight:600; }
   .act.buy { color:var(--pass); }
   .act.sell { color:var(--fail); }
@@ -203,10 +214,10 @@ LIVE_PAGE = """<!doctype html>
   .hint { margin:.35rem 0 0; font-size:.78rem; color:var(--faint); line-height:1.5; }
   .err { color:var(--fail); font-size:.85rem; margin:.8rem 0 0; }
 
-  .empty { color:var(--soft); font-size:.88rem; margin:0; }
+  .empty { color:var(--soft); font-size:.94rem; margin:0; }
   .empty code { font:500 .82em/1 var(--mono); background:var(--raised);
                 padding:.15em .4em; border-radius:4px; }
-  .foot { margin-top:2.4rem; font-size:.82rem; color:var(--faint); line-height:1.7; }
+  .foot { margin-top:2.4rem; font-size:.88rem; color:var(--faint); line-height:1.7; }
   .mode { display:inline-block; font:600 .66rem/1 var(--sans); letter-spacing:.1em;
           text-transform:uppercase; padding:.32rem .55rem; border-radius:6px;
           color:var(--brass); background:color-mix(in srgb, var(--brass) 15%, transparent); }

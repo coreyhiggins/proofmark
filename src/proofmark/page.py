@@ -61,9 +61,13 @@ PAGE = """<!doctype html>
   *,*::before,*::after { box-sizing:border-box; }
   body {
     margin:0; background:var(--bg); color:var(--ink);
-    font:16px/1.6 var(--sans); -webkit-font-smoothing:antialiased;
+    font:17px/1.65 var(--sans); -webkit-font-smoothing:antialiased;
   }
-  .wrap { max-width:52rem; margin:0 auto; padding:3rem 1.5rem 6rem; }
+  .wrap { max-width:60rem; margin:0 auto; padding:3rem 1.5rem 6rem; }
+  /* Charts read better wide and prose reads worse, so the column is sized
+     for the charts and the running text is capped separately, rather than
+     squeezing everything to whichever constraint happens to be tighter. */
+  .hint, .cap, .foot, ol.notes p, .verdict p { max-width:60ch; }
   /* A narrow column stranded in the top third of a maximised window reads as
      unfinished. With no result yet there is nothing below it, so centre it. */
   body:has(#out:empty) .wrap {
@@ -132,16 +136,16 @@ PAGE = """<!doctype html>
 
   table.board {
     width:100%; border-collapse:collapse; margin-top:1rem;
-    font:500 .84rem/1.5 var(--sans); font-variant-numeric:tabular-nums;
+    font:500 .94rem/1.55 var(--sans); font-variant-numeric:tabular-nums;
   }
   table.board th {
-    text-align:left; font:600 .68rem/1.4 var(--sans); letter-spacing:.09em;
+    text-align:left; font:600 .74rem/1.4 var(--sans); letter-spacing:.09em;
     text-transform:uppercase; color:var(--faint); padding:0 .6rem .5rem;
     border-bottom:1px solid var(--line);
   }
-  table.board td { padding:.5rem .6rem; border-bottom:1px solid var(--line); }
+  table.board td { padding:.62rem .6rem; border-bottom:1px solid var(--line); }
   table.board .n { text-align:right; }
-  table.board .rank { color:var(--faint); width:2rem; font-size:.76rem; }
+  table.board .rank { color:var(--faint); width:2.2rem; font-size:.84rem; }
   /* One row is the benchmark. It is ranked among the others rather than sitting
      in a footnote, because a reader can skip a footnote. */
   table.board tr.hold td {
@@ -163,7 +167,7 @@ PAGE = """<!doctype html>
     margin:1.2rem 0 0; font:600 1.05rem/1.4 var(--serif); color:var(--ink);
   }
   p.headline.bad { color:var(--fail); }
-  p.lesson { margin:.9rem 0 0; font:400 .82rem/1.6 var(--sans); color:var(--soft); }
+  p.lesson { margin:1rem 0 0; font:400 .92rem/1.65 var(--sans); color:var(--soft); max-width:66ch; }
   code {
     font:500 .78em/1 var(--mono); background:var(--raised);
     padding:.15em .4em; border-radius:4px; color:var(--soft);
@@ -213,12 +217,18 @@ PAGE = """<!doctype html>
   .plate { margin-top:1rem; }
   .plate h3 { margin:0 0 .1rem; font:600 .82rem/1.4 var(--sans); }
   .plate .cap { margin:0; font-size:.83rem; color:var(--soft); }
-  svg.chart { display:block; width:100%; margin-top:.9rem; overflow:visible; }
+    /* height:auto is doing real work here. The SVG carries height="260" as a
+     presentation attribute, and with the default preserveAspectRatio a 720x260
+     viewBox inside a 995px box scaled to min(1.38, 1.00) = 1.00 and centred
+     itself, leaving blank margins and drawing the chart at a third of the
+     available width. Letting the height come from the viewBox makes the chart
+     fill the card, and every label inside it grows with it. */
+  svg.chart { display:block; width:100%; height:auto; margin-top:.9rem; overflow:visible; }
   svg.chart .grid { stroke:var(--line); stroke-width:1; }
   svg.chart .base { stroke:var(--soft); stroke-width:1; stroke-dasharray:2 3; opacity:.7; }
-  svg.chart .tick { fill:var(--faint); font:11px var(--mono); font-variant-numeric:tabular-nums; }
+  svg.chart .tick { fill:var(--faint); font:13px var(--mono); font-variant-numeric:tabular-nums; }
   svg.chart .tick-base { fill:var(--soft); }
-  svg.chart .tag { font:600 11px var(--sans); letter-spacing:.03em; }
+  svg.chart .tag { font:600 13px var(--sans); letter-spacing:.03em; }
   svg.chart .bench-tag { fill:var(--soft); }
   svg.chart .subject-tag { fill:var(--brass); }
   svg.chart .subject { fill:none; stroke:var(--brass); stroke-width:2.2; stroke-linejoin:round; stroke-linecap:round; }
@@ -242,7 +252,7 @@ PAGE = """<!doctype html>
     svg.chart .bench, svg.chart .underwater-line { animation:fadeIn .55s ease .2s both; }
     @keyframes fadeIn { from { opacity:0; } }
   }
-  .chart-caption { margin:.6rem 0 0; font:.82rem/1.5 var(--sans); color:var(--soft); font-variant-numeric:tabular-nums; }
+  .chart-caption { margin:.7rem 0 0; font:.92rem/1.5 var(--sans); color:var(--soft); font-variant-numeric:tabular-nums; }
 
   ol.notes { list-style:none; margin:0; padding:0; }
   ol.notes li { padding:1.05rem 0; border-bottom:1px solid var(--line); }
@@ -254,12 +264,12 @@ PAGE = """<!doctype html>
   ol.notes .fatal .tag { color:var(--fail); background:color-mix(in srgb, var(--fail) 15%, transparent); }
   ol.notes .warn .tag { color:var(--warn); background:color-mix(in srgb, var(--warn) 15%, transparent); }
   ol.notes b { display:block; font-weight:600; margin-bottom:.25rem; font-size:.98rem; }
-  ol.notes p { margin:0; color:var(--soft); font-size:.92rem; }
+  ol.notes p { margin:0; color:var(--soft); font-size:.96rem; line-height:1.65; }
 
   .figures { display:grid; grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr)); gap:.7rem; margin-top:1rem; }
   .fig { background:var(--raised); border-radius:10px; padding:.85rem .95rem; }
-  .fig dt { font:.75rem/1.3 var(--sans); color:var(--soft); margin-bottom:.25rem; }
-  .fig dd { margin:0; font:600 1.15rem/1.2 var(--mono); font-variant-numeric:tabular-nums; }
+  .fig dt { font:.82rem/1.3 var(--sans); color:var(--soft); margin-bottom:.3rem; }
+  .fig dd { margin:0; font:600 1.35rem/1.2 var(--mono); font-variant-numeric:tabular-nums; }
   .fig dd.none { color:var(--faint); font:italic 400 .95rem/1.4 var(--sans); }
 
   .err { color:var(--fail); }

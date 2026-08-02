@@ -203,6 +203,66 @@ you already use rather than migrating to this one.
 Exchange and data adapters live behind extras: `proofmark[crypto]`,
 `proofmark[equities]`.
 
+## Run it live, on paper
+
+```bash
+proofmark run --symbol BTC/USDT --timeframe 1h --strategy ema-cross
+```
+
+Real prices, imaginary money. proofmark never holds a key that could place an
+order, and there is no flag that changes that.
+
+```
+  paper trading BTC/USDT 1h on okx
+  strategy      ema-cross
+  costs         0.100% fee and 0.050% slippage, per side
+
+  12:32:30  account 9,654.34  return -3.46%  holding -4.02%  difference +0.56%
+```
+
+The same run is available in the app under **Watch a live run**, where you can
+start it from a form instead of a terminal. It draws the price with the entries
+and exits marked, the account against buying once and holding, and the drawdown,
+and it runs the guards over the live curve as it goes.
+
+Three rules decide whether this is honest, and all three are in the engine
+rather than in your discipline:
+
+- **Decisions are made on a closed bar and filled at the next bar's open**, so
+  nothing can trade at a price it has already seen. This is the same convention
+  `check_lookahead` property-tests, and the built-in strategies are tested
+  against it.
+- **The still-forming candle is dropped on every poll.** An exchange returns the
+  current bar with a close that is just the last trade. Reading it is the most
+  common reason a live bot beats its backtest and then bleeds in production.
+- **Fees and slippage come off both sides of every fill.** A costless paper run
+  is a fantasy generator, and the guards would call it disqualifying anyway.
+
+Buy and hold is tracked from the first bar whether or not you ask, because the
+runs where nobody asks are the runs where it matters.
+
+### Rules you can run without writing any Python
+
+```bash
+proofmark run --list-strategies
+```
+
+| name | what it does |
+| --- | --- |
+| `ema-cross` | Buys when a 9 bar average crosses above a 21 bar average, sells on the way back. |
+| `rsi-dip` | Buys when RSI drops under 30, sells once it recovers past 55. |
+| `breakout` | Buys a 20 bar high, sells a 20 bar low. |
+| `buy-and-hold` | Buys once on the first bar and never trades again. The thing to beat. |
+
+None of these is a recommendation and none is expected to make money. They are
+the textbook rules everyone tries first, included so the tool can show you what
+they actually do. Buy and hold is a runnable strategy rather than only a dashed
+line, so the benchmark runs under identical fees and the same fill rule and
+there is nothing left to argue about.
+
+Market data needs `pip install 'proofmark[crypto]'`. The Windows installer
+bundles it.
+
 ## Walk-forward is the primary verb
 
 ```python
@@ -301,7 +361,8 @@ decides a trade, and the rules that do are deterministic and testable.
 ## What this does not do
 
 - It does not tell you what to buy, and it is not investment advice.
-- It does not claim any strategy is profitable. It has no strategies.
+- It does not claim any strategy is profitable. The built-in rules exist so
+  you can watch what they do, and most of them lose to buying and holding.
 - It will not make a bad strategy good. It will make a bad strategy legible.
 - Passing every guard is not evidence a strategy works. It only means the
   obvious ways of fooling yourself have been ruled out.
@@ -309,8 +370,9 @@ decides a trade, and the rules that do are deterministic and testable.
 ## Status
 
 Early. The core is the guards, the metrics and the lookahead detector, which
-are the parts with a real gap. Execution adapters, walk-forward and the
-research layer come next.
+are the parts with a real gap. Walk-forward, the live paper engine and the
+comparison table are in. Live execution against a real account is not, and
+will not be until the paper path has been boring for a long time.
 
 ## License
 
