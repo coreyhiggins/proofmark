@@ -320,7 +320,36 @@ def run_system_once(system, state_path: str | Path, *, store=None) -> object:
         switch.set(run.breach.detail, code=run.breach.code)
 
     _write_system_state(run, system, state_path, switch)
+
+    # Written after the state file, so a crash between the two loses a log line
+    # rather than the display. Deduplicated by the journal, because the loop
+    # re-derives the whole history on every poll.
+    from .journal import Journal, announce, events_from_run
+
+    home = Path(state_path).parent
+    journal = Journal(home / "log" / f"{system.name}.jsonl")
+    fresh = journal.write(events_from_run(run, system.name))
+    if fresh:
+        announce(fresh, webhook=_webhook(home), desktop=True)
     return run
+
+
+def _webhook(home: Path) -> str:
+    """The Discord URL, from a file that is never logged or echoed back.
+
+    A file rather than a setting in the state file, because anyone holding this
+    URL can post to that channel, and the state file is the one thing this
+    program is designed to hand to a viewer.
+    """
+    import os
+
+    from_env = os.environ.get("PROOFMARK_DISCORD_WEBHOOK", "").strip()
+    if from_env:
+        return from_env
+    try:
+        return (home / "discord-webhook.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def _write_system_state(run, system, state_path, switch) -> None:

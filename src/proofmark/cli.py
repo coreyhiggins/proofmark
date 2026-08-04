@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 import time
 from pathlib import Path
@@ -140,6 +141,106 @@ def _run_live(args) -> int:
     return 0
 
 
+def _serve_headless(args) -> int:
+    """Run a saved system forever with no window.
+
+    A daily loss limit implies something running unattended, so the app-only
+    version was never going to be enough: a limit that applies only while a
+    window happens to be open is not a limit.
+    """
+    from .limits import HaltFile
+    from .runner import DEFAULT_POLL_SECONDS, run_system_once
+    from .systems import Store
+
+    state_path = Path(args.state) if args.state else default_state_path()
+    store = Store(state_path.parent)
+    system = {s.name: s for s in store.all()}.get(args.system)
+    if system is None:
+        print(f"  no system called {args.system!r}")
+        print(f"  available: {', '.join(s.name for s in store.all())}")
+        return 1
+
+    allowed, why = store.may_run(system)
+    if not allowed:
+        print(f"  refused: {why}")
+        return 1
+
+    every = args.every or DEFAULT_POLL_SECONDS
+    halt_path = state_path.parent / "halt"
+    log_path = state_path.parent / "log" / (system.name + ".jsonl")
+
+    print()
+    print(f"  {system.name}: {', '.join(system.symbols)} on {system.venue}")
+    print(f"  paper only, checking every {every}s")
+    print(f"  state {state_path}")
+    print(f"  log   {log_path}")
+    print(f"  stop it any time by creating {halt_path}")
+    print()
+
+    while True:
+        try:
+            run = run_system_once(system, state_path)
+            flag = "  HALTED" if HaltFile(halt_path).active else ""
+            print(
+                f"  {time.strftime('%H:%M:%S')}  {run.equity[-1]:,.2f}  "
+                f"{run.total_return:+.2%} against {run.benchmark_return:+.2%} holding"
+                + flag
+            )
+        except KeyboardInterrupt:
+            print("  stopped")
+            return 0
+        except Exception as err:  # noqa: BLE001
+            print(f"  {time.strftime('%H:%M:%S')}  cycle failed: {err}")
+        if args.once:
+            return 0
+        try:
+            time.sleep(every)
+        except KeyboardInterrupt:
+            print("  stopped")
+            return 0
+
+
+def _autostart(args) -> int:
+    """Add or remove a login shortcut on Windows.
+
+    A file in the Startup folder rather than a scheduled task or a service: no
+    elevation, no installer, and the user can see it and delete it in Explorer.
+    A trading bot that can only be switched off by an administrator is worse
+    than one that does not start itself.
+    """
+    if os.name != "nt":
+        print("  autostart is Windows only for now.")
+        print("  Elsewhere, run 'proofmark serve <system>' from a systemd unit,")
+        print("  a launchd plist, or a terminal you leave open.")
+        return 1
+
+    startup = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/Startup"
+    link = startup / "proofmark.cmd"
+
+    if args.remove:
+        link.unlink(missing_ok=True)
+        print(f"  removed {link}")
+        return 0
+
+    if not args.system:
+        print("  name a system, or pass --remove")
+        return 1
+
+    exe = Path(sys.executable)
+    if exe.name.lower().startswith("proofmark"):
+        command = f'"{exe}" serve {args.system}'
+    else:
+        command = f'"{exe}" -m proofmark serve {args.system}'
+
+    startup.mkdir(parents=True, exist_ok=True)
+    link.write_text("@echo off\r\n" + command + "\r\n", encoding="utf-8")
+
+    print(f"  {args.system} will start when you log in")
+    print(f"  {link}")
+    print("  delete that file, or run 'proofmark autostart --remove', to stop")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="proofmark",
@@ -195,6 +296,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     live.add_argument("--list-strategies", action="store_true",
                       help="print the built-in rule sets and stop")
 
+    watch = sub.add_parser(
+        "serve",
+        help="run a saved system with no window, for leaving on",
+        description="Headless. No window, no browser, just the loop and the log. "
+                    "This is what you leave running.",
+    )
+    watch.add_argument("system", help="name of a saved system")
+    watch.add_argument("--state", default=None)
+    watch.add_argument("--every", type=int, default=None)
+    watch.add_argument("--once", action="store_true")
+
+    auto = sub.add_parser(
+        "autostart",
+        help="start a system when you log in, or stop doing that",
+    )
+    auto.add_argument("system", nargs="?", help="system to run at login")
+    auto.add_argument("--remove", action="store_true")
+
     upd = sub.add_parser("update", help="check for and install a newer version")
     upd.add_argument("--check", action="store_true", help="only report, do not install")
 
@@ -218,6 +337,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "run":
         return _run_live(args)
+
+    if args.command == "serve":
+        return _serve_headless(args)
+
+    if args.command == "autostart":
+        return _autostart(args)
 
     # Always resolve a state path for the window, even when the file does not
     # exist yet. Without one the live view has nowhere to write, so its start
