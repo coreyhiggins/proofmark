@@ -214,6 +214,37 @@ LIVE_PAGE = """<!doctype html>
   .hint { margin:.35rem 0 0; font-size:.78rem; color:var(--faint); line-height:1.5; }
   .err { color:var(--fail); font-size:.85rem; margin:.8rem 0 0; }
 
+  /* Systems. Each is a card that states what it trades, what it risks, and
+     whether it has been checked. The check state is the loudest thing on it. */
+  .systems { display:grid; gap:.9rem; }
+  .system {
+    background:var(--raised); border:1px solid var(--line); border-radius:11px;
+    padding:1rem 1.1rem;
+  }
+  .system.on { border-color:var(--brass); }
+  .system h3 { margin:0; font:600 .98rem/1.3 var(--sans); display:flex;
+               align-items:center; gap:.6rem; flex-wrap:wrap; }
+  .system p { margin:.3rem 0 0; font-size:.88rem; color:var(--soft); max-width:60ch; }
+  .chip {
+    font:600 .64rem/1 var(--sans); letter-spacing:.09em; text-transform:uppercase;
+    padding:.32rem .5rem; border-radius:5px; white-space:nowrap;
+  }
+  .chip.ok   { color:var(--pass); background:color-mix(in srgb, var(--pass) 16%, transparent); }
+  .chip.no   { color:var(--warn); background:color-mix(in srgb, var(--warn) 16%, transparent); }
+  .chip.bad  { color:var(--fail); background:color-mix(in srgb, var(--fail) 16%, transparent); }
+  .legs { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.7rem; }
+  .leg {
+    font:500 .78rem/1 var(--mono); background:var(--panel); border:1px solid var(--line);
+    border-radius:6px; padding:.4rem .55rem; color:var(--soft);
+  }
+  .leg b { color:var(--ink); font-weight:600; }
+  .rule { margin-top:.6rem; font:.8rem/1.6 var(--mono); color:var(--faint); }
+  .needs { margin:.7rem 0 0; padding:0; list-style:none; }
+  .needs li { font-size:.82rem; color:var(--warn); margin-top:.3rem; }
+  .verdict-line { margin-top:.7rem; font-size:.86rem; }
+  .verdict-line.pass { color:var(--pass); }
+  .verdict-line.fail { color:var(--fail); }
+
   .empty { color:var(--soft); font-size:.94rem; margin:0; }
   .empty code { font:500 .82em/1 var(--mono); background:var(--raised);
                 padding:.15em .4em; border-radius:4px; }
@@ -264,16 +295,35 @@ function ago(seconds) {
 // seconds would wipe whatever the person was in the middle of typing.
 let controlKey = null;
 
+// The last check result, kept OUTSIDE the panel it is drawn into. Finishing a
+// check changes the gate state, which rebuilds the panel, which used to destroy
+// the result a third of a second after it appeared: you clicked Check, saw
+// nothing, and the Run button silently enabled itself.
+let lastCheck = null;
+
 function renderControl(c, hasRun) {
-  const key = JSON.stringify([c.running, c.canStart, c.error, hasRun]);
+  const key = JSON.stringify([c.running, c.canStart, c.error, hasRun,
+                              c.halt, (c.systems || []).map(x => [x.name, x.cleared, x.verified])]);
   if (key === controlKey) return;
   controlKey = key;
 
   const s = c.settings || {};
   const box = $('control');
 
+  // A halt outranks everything. It is stated first, it says what tripped it,
+  // and lifting it is its own button rather than a side effect of starting a
+  // run, so nobody clears a drawdown breach by pressing the thing they press
+  // every morning.
+  let halted = '';
+  if (c.halt) {
+    halted = '<div class="banner bad"><h2>Halted</h2><p>' + esc(c.halt.reason)
+      + (c.halt.manual ? '' : ' No new positions will be opened. Exits still run.')
+      + '</p><div class="actions"><button class="ghost" id="resume">Lift the halt</button>'
+      + '</div></div>';
+  }
+
   if (c.running) {
-    box.innerHTML = '<div class="card"><h2>Paper run in progress</h2>'
+    box.innerHTML = halted + '<div class="card"><h2>Paper run in progress</h2>'
       + '<p class="cap">' + esc(s.symbol || '') + ' ' + esc(s.timeframe || '')
       + ' on ' + esc(s.venue || '') + ', using ' + esc(s.strategy || '')
       + '. Checking for a new closed bar every minute.</p>'
@@ -285,55 +335,121 @@ function renderControl(c, hasRun) {
       controlKey = null;
       tick();
     };
+    wireResume();
     return;
   }
 
-  const options = (c.strategies || []).map(x =>
-    '<option value="' + esc(x.name) + '"' + (x.name === 'ema-cross' ? ' selected' : '')
-    + '>' + esc(x.name) + '</option>').join('');
+  const systems = c.systems || [];
 
-  box.innerHTML = '<div class="card"><h2>' + (hasRun ? 'Start another run' : 'Start a paper run')
-    + '</h2><p class="cap">Real prices, imaginary money. No key that could place '
-    + 'an order is ever used, and there is no setting here that changes that.</p>'
-    + '<div class="fields">'
-    + '<div><label class="lbl" for="symbol">Symbol</label>'
-    + '<input id="symbol" value="' + esc(s.symbol || 'BTC/USDT') + '"></div>'
-    + '<div><label class="lbl" for="venue">Exchange</label>'
-    + '<select id="venue"><option value="okx">okx</option>'
-    + '<option value="bitget">bitget</option></select></div>'
-    + '<div><label class="lbl" for="timeframe">Bar size</label>'
-    + '<select id="timeframe"><option value="15m">15m</option>'
-    + '<option value="1h" selected>1h</option><option value="4h">4h</option>'
-    + '<option value="1d">1d</option></select></div>'
-    + '<div><label class="lbl" for="strategy">Rules</label>'
-    + '<select id="strategy">' + options + '</select></div>'
-    + '<div><label class="lbl" for="cash">Starting balance</label>'
-    + '<input id="cash" value="10000"></div>'
-    + '</div>'
-    + '<p class="hint">Fees of 0.1% and slippage of 0.05% come off both sides of '
-    + 'every fill. Decisions are made on a closed bar and filled at the next bar\\'s '
-    + 'open, so nothing trades on a price it has already seen.</p>'
-    + '<div class="actions"><button class="go" id="start">Start</button></div>'
-    + '<p class="err" id="startErr" hidden></p></div>';
+  box.innerHTML = halted + '<div class="card"><h2>Systems</h2>'
+    + '<p class="cap">A system is every market, rule, size and limit written down '
+    + 'together. Nothing runs until it has been checked against history.</p>'
+    + '<div class="systems">' + systems.map(sys => {
+      const v = sys.verified;
+      let chip = '<span class="chip no">not checked</span>';
+      if (v && v.passed) chip = '<span class="chip ok">checked</span>';
+      else if (v && !v.passed) chip = '<span class="chip bad">disqualified</span>';
 
-  $('start').onclick = async () => {
-    const btn = $('start'), err = $('startErr');
-    btn.disabled = true; err.hidden = true;
-    try {
-      const res = await fetch('/run', {method: 'POST', body: JSON.stringify({
-        symbol: $('symbol').value, venue: $('venue').value,
-        timeframe: $('timeframe').value, strategy: $('strategy').value,
-        cash: Number($('cash').value)
-      })});
-      const out = await res.json();
-      if (out.error) { err.textContent = out.error; err.hidden = false; btn.disabled = false; return; }
-      controlKey = null;
-      setTimeout(tick, 400);
-    } catch (e) {
-      err.textContent = 'Could not reach the local server.'; err.hidden = false;
-      btn.disabled = false;
-    }
+      return '<div class="system' + (sys.cleared ? ' on' : '') + '">'
+        + '<h3>' + esc(sys.name) + chip + '</h3>'
+        + '<p>' + esc(sys.description) + '</p>'
+        + '<div class="legs">' + sys.markets.map(m =>
+            '<span class="leg"><b>' + esc(m.symbol) + '</b> ' + esc(m.timeframe)
+            + ' ' + esc(m.strategy) + '</span>').join('') + '</div>'
+        + '<p class="rule">' + esc(sys.risk) + (sys.guard ? '  &middot;  ' + esc(sys.guard) : '')
+        + '  &middot;  ' + esc(sys.venue) + '</p>'
+        + (sys.needs.length
+            ? '<ul class="needs">' + sys.needs.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>'
+            : '')
+        + (v ? '<p class="verdict-line ' + (v.passed ? 'pass' : 'fail') + '">'
+              + esc(v.summary) + '. Returned ' + esc(v.totalReturn) + ' against '
+              + esc(v.benchmarkReturn) + ' for holding, over ' + v.trades + ' trades.'
+              + (v.passed && !v.beatHolding
+                  ? ' Passing is not the same as being worth running.' : '')
+              + '</p>'
+            : '')
+        + '<div class="actions">'
+        + '<button class="ghost" data-check="' + esc(sys.name) + '">Check against history</button>'
+        + '<button class="go" data-start="' + esc(sys.name) + '"'
+        + (sys.cleared ? '' : ' disabled title="' + esc(sys.why) + '"') + '>Run on paper</button>'
+        + '</div></div>';
+    }).join('') + '</div>'
+    + '<p class="hint">Fees and slippage come off both sides of every fill. '
+    + 'Decisions are made on a closed bar and filled at the next bar\\'s open, so '
+    + 'nothing trades on a price it has already seen.</p>'
+    + '<div id="checkOut"></div><p class="err" id="startErr" hidden></p></div>';
+
+  if (lastCheck) $('checkOut').innerHTML = lastCheck;
+  wireResume();
+  box.querySelectorAll('[data-check]').forEach(btn => {
+    btn.onclick = () => runCheck(btn, btn.getAttribute('data-check'));
+  });
+  box.querySelectorAll('[data-start]').forEach(btn => {
+    btn.onclick = () => startSystem(btn, btn.getAttribute('data-start'));
+  });
+}
+
+function wireResume() {
+  const btn = $('resume');
+  if (!btn) return;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    await fetch('/resume', {method: 'POST'});
+    controlKey = null;
+    tick();
   };
+}
+
+async function runCheck(btn, name) {
+  const out = $('checkOut'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Checking';
+  out.innerHTML = '<p class="empty" style="margin-top:1rem">Pulling history and '
+    + 'running every market. This takes a few seconds.</p>';
+  try {
+    const res = await fetch('/check-system', {method: 'POST', body: JSON.stringify({name})});
+    const d = await res.json();
+    if (d.error) {
+      out.innerHTML = '<p class="err">' + esc(d.error) + '</p>';
+    } else {
+      lastCheck = '<div class="banner ' + (d.passed ? 'warn' : 'bad') + '" '
+        + 'style="margin-top:1rem">'
+        + '<h2>' + (d.passed ? 'Cleared to run' : 'Not cleared to run') + '</h2>'
+        + '<p>' + esc(d.summary) + '. Returned ' + esc(d.totalReturn) + ' against '
+        + esc(d.benchmarkReturn) + ' for buying and holding, over ' + d.trades
+        + ' trades and ' + d.bars + ' steps.'
+        + (d.passed && !d.beatHolding
+            ? ' It passed the checks and still finished behind doing nothing.' : '')
+        + '</p></div>'
+        + (d.findings.length
+            ? '<ol class="notes">' + d.findings.map(f =>
+                '<li><b>' + esc(f) + '</b></li>').join('') + '</ol>'
+            : '')
+        + (d.chart || '');
+      out.innerHTML = lastCheck;
+      controlKey = null;
+      setTimeout(tick, 300);
+    }
+  } catch (e) {
+    out.innerHTML = '<p class="err">Could not reach the local server.</p>';
+  }
+  btn.disabled = false; btn.textContent = label;
+}
+
+async function startSystem(btn, name) {
+  const err = $('startErr');
+  btn.disabled = true; err.hidden = true;
+  try {
+    const res = await fetch('/start-system', {method: 'POST', body: JSON.stringify({name})});
+    const out = await res.json();
+    if (out.error) {
+      err.textContent = out.error; err.hidden = false; btn.disabled = false; return;
+    }
+    controlKey = null;
+    setTimeout(tick, 400);
+  } catch (e) {
+    err.textContent = 'Could not reach the local server.'; err.hidden = false;
+    btn.disabled = false;
+  }
 }
 
 function render(d) {

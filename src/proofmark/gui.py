@@ -23,6 +23,7 @@ import json
 import socketserver
 import threading
 import webbrowser
+from pathlib import Path
 from typing import Any
 
 import time
@@ -136,6 +137,87 @@ def _compare(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _check_system(state_path: str, name: str) -> dict[str, Any]:
+    """Run a system over history and record the verdict against its fingerprint.
+
+    Synchronous on purpose. It takes seconds, it is the one thing a person
+    should watch happen, and a background check that silently unlocks a button
+    later is how a gate becomes something people stop reading.
+    """
+    from .systems import Store, requirements
+    from .verify import explain, fetch_history, verify
+
+    store = Store(Path(state_path).parent)
+    system = {s.name: s for s in store.all()}.get(name)
+    if system is None:
+        return {"error": f"No system called {name!r}."}
+
+    blockers = [r for r in requirements(system) if "IEX" not in r]
+    if blockers:
+        return {"error": blockers[0]}
+
+    try:
+        bars = fetch_history(system, limit=1000)
+    except Exception as err:  # noqa: BLE001
+        return {"error": f"Could not fetch history: {err}"}
+
+    verification, run = verify(system, bars)
+    store.record(system, verification)
+
+    return {
+        "passed": verification.passed,
+        "summary": verification.summary,
+        "findings": verification.findings,
+        "explanation": explain(verification),
+        "totalReturn": f"{verification.total_return:+.1%}",
+        "benchmarkReturn": f"{verification.benchmark_return:+.1%}",
+        "beatHolding": verification.beat_holding,
+        "trades": verification.trades,
+        "bars": verification.bars,
+        "chart": equity_chart(run.equity, run.benchmark or None, animate=False),
+    }
+
+
+def _systems_payload(state_path: str | None) -> list[dict[str, Any]]:
+    """Every system, with whether it is cleared to run and what it still needs."""
+    if not state_path:
+        return []
+
+    from .systems import Store, requirements
+
+    store = Store(Path(state_path).parent)
+    out: list[dict[str, Any]] = []
+    for system in store.all():
+        allowed, why = store.may_run(system)
+        verification = store.verification(system)
+        out.append({
+            "name": system.name,
+            "description": system.description,
+            "venue": system.venue,
+            "markets": [
+                {"symbol": m.symbol, "strategy": m.strategy, "timeframe": m.timeframe}
+                for m in system.markets
+            ],
+            "risk": f"{system.sizing.risk_per_trade:.1%} per trade, "
+                    f"{system.sizing.atr_multiple:g}x ATR stop",
+            "guard": f"{system.limits.daily_loss:.0%} daily, "
+                     f"{system.limits.max_drawdown:.0%} drawdown"
+                     if system.limits.daily_loss and system.limits.max_drawdown else "",
+            "needs": requirements(system),
+            "cleared": allowed,
+            "why": why,
+            "verified": None if verification is None else {
+                "passed": verification.passed,
+                "summary": verification.summary,
+                "totalReturn": f"{verification.total_return:+.1%}",
+                "benchmarkReturn": f"{verification.benchmark_return:+.1%}",
+                "beatHolding": verification.beat_holding,
+                "trades": verification.trades,
+            },
+        })
+    return out
+
+
 def _when(stamp: float) -> str:
     """A decision's time, dated when it was not today."""
     if not stamp:
@@ -191,11 +273,19 @@ def _live_payload(path: str | None) -> dict[str, Any]:
     # Sent on every poll, whether or not there is anything to watch, because
     # the start form has to be reachable from the empty state. That empty state
     # is where every new user begins.
+    from .limits import HaltFile
+
+    halt = HaltFile(Path(path).parent / "halt").read() if path else None
+
     control: dict[str, Any] = {
         "running": SESSION.running,
         "canStart": bool(path),
         "settings": SESSION.settings,
         "error": SESSION.error,
+        "systems": _systems_payload(path),
+        "halt": None if halt is None else {
+            "reason": halt.reason, "code": halt.code, "manual": halt.manual,
+        },
         "strategies": [
             {"name": s.name, "summary": s.summary} for s in
             sorted(BUILTIN.values(), key=lambda s: s.name)
@@ -302,10 +392,55 @@ class _Session:
         self.stop = threading.Event()
         self.settings: dict[str, Any] = {}
         self.error = ""
+        self.system: Any = None
+        self.checking = ""
 
     @property
     def running(self) -> bool:
         return self.thread is not None and self.thread.is_alive()
+
+    def start_system(self, state_path: str, name: str) -> str:
+        """Start a saved system. Refuses anything that has not passed the check."""
+        if self.running:
+            return "A run is already going. Stop it before starting another."
+
+        from .systems import Store, requirements
+
+        store = Store(Path(state_path).parent)
+        system = {s.name: s for s in store.all()}.get(name)
+        if system is None:
+            return f"No system called {name!r}."
+
+        blockers = [r for r in requirements(system) if "IEX" not in r]
+        if blockers:
+            return blockers[0]
+
+        allowed, why = store.may_run(system)
+        if not allowed:
+            return why
+
+        self.error = ""
+        self.stop.clear()
+        self.system = system
+        self.settings = {"symbol": ", ".join(system.symbols), "venue": system.venue,
+                         "timeframe": "mixed", "strategy": system.name}
+        self.thread = threading.Thread(
+            target=self._system_loop, args=(state_path,), daemon=True,
+            name="proofmark-system",
+        )
+        self.thread.start()
+        return ""
+
+    def _system_loop(self, state_path: str) -> None:
+        from .runner import DEFAULT_POLL_SECONDS, run_system_once
+
+        while not self.stop.is_set():
+            try:
+                run_system_once(self.system, state_path)
+                self.error = ""
+            except Exception as err:  # noqa: BLE001
+                self.error = str(err)
+            self.stop.wait(DEFAULT_POLL_SECONDS)
 
     def start(self, state_path: str, settings: dict[str, Any]) -> str:
         if self.running:
@@ -390,7 +525,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path in ("/run", "/stop"):
+        if self.path in ("/run", "/stop", "/start-system", "/check-system", "/resume"):
             self._control()
             return
 
@@ -414,6 +549,35 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/stop":
             SESSION.halt()
             self._send(200, json.dumps({"ok": True}).encode("utf-8"), "application/json")
+            return
+
+        if self.path == "/resume":
+            # Lifting a halt is deliberate and separate from starting a run.
+            # Same button for both would let someone clear a drawdown breach by
+            # pressing the thing they press every morning.
+            from .limits import HaltFile
+
+            if self.state_path:
+                HaltFile(Path(self.state_path).parent / "halt").clear()
+            self._send(200, json.dumps({"ok": True}).encode("utf-8"), "application/json")
+            return
+
+        if self.path in ("/start-system", "/check-system"):
+            length = min(int(self.headers.get("Content-Length") or 0), 64 * 1024)
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except ValueError:
+                body = {}
+            name = str(body.get("name") or "") if isinstance(body, dict) else ""
+
+            if not self.state_path:
+                result = {"error": "This window has nowhere to write results."}
+            elif self.path == "/check-system":
+                result = _check_system(self.state_path, name)
+            else:
+                result = {"error": SESSION.start_system(self.state_path, name)}
+
+            self._send(200, json.dumps(result).encode("utf-8"), "application/json")
             return
 
         if not self.state_path:

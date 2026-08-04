@@ -279,6 +279,82 @@ def run_once(
     return run
 
 
+def run_system_once(system, state_path: str | Path, *, store=None) -> object:
+    """Fetch, run every market, and write the state file once.
+
+    The gate is enforced HERE rather than only in the button that starts a run.
+    A check that lives in the interface is a suggestion: anything that calls the
+    engine another way walks straight past it, and the first thing anyone does
+    with a tool like this is call it another way.
+    """
+    from .engine import run_portfolio
+    from .limits import HaltFile
+    from .systems import Store
+    from .verify import fetch_history
+
+    store = store or Store(Path(state_path).parent)
+    allowed, why = store.may_run(system)
+    if not allowed:
+        raise PermissionError(why)
+
+    bars = fetch_history(system, limit=600)
+    thin = [s for s, series in bars.items() if len(series) < 30]
+    if thin:
+        raise ValueError(
+            f"{', '.join(thin)} came back with almost no history, so there is "
+            "nothing to measure volatility against yet."
+        )
+
+    switch = HaltFile(Path(state_path).parent / "halt")
+    run = run_portfolio(
+        list(system.markets), bars,
+        starting_cash=system.starting_cash,
+        sizing=system.sizing,
+        limits=system.limits,
+        halt=switch.read(),
+    )
+
+    # A limit breached during the run sets the switch, so it survives a restart
+    # rather than being recomputed and forgotten on the next poll.
+    if run.breach is not None and not switch.active:
+        switch.set(run.breach.detail, code=run.breach.code)
+
+    _write_system_state(run, system, state_path, switch)
+    return run
+
+
+def _write_system_state(run, system, state_path, switch) -> None:
+    """Flatten a multi-market run into the state file the live view reads."""
+    from .live import Mark, Position
+
+    halt = switch.read()
+    positions = [
+        Position(symbol=s, quantity=h.quantity, entry=h.entry,
+                 current=run.closes[s][-1] if run.closes.get(s) else h.entry,
+                 stop=h.stop)
+        for s, h in (run.portfolio.holdings if run.portfolio else {}).items()
+    ]
+
+    # The chart shows the first market. Everything else is in the tables, and
+    # five stacked price charts on one page is a wall nobody reads.
+    lead = system.markets[0].symbol if system.markets else ""
+
+    write_state(
+        state_path,
+        mode="paper",
+        equity=run.equity,
+        benchmark=run.benchmark,
+        closes=run.closes.get(lead, []),
+        marks=run.marks.get(lead, []),
+        positions=positions,
+        decisions=run.decisions,
+        halted=halt is not None,
+        halt_reason=halt.reason if halt else "",
+        label=f"{system.name}: {', '.join(system.symbols)}",
+        strategy=f"{len(system.markets)} markets on {system.venue}",
+    )
+
+
 def run_forever(
     *,
     venue: str,
