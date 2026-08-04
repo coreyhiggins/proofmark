@@ -162,6 +162,54 @@ intact, and makes the gate itself a feature rather than a disclaimer.
 - **Safety rails first**, which are market-neutral and improve the paper engine
   regardless of what comes back about real money.
 
+## The reference system
+
+A 67-second video was supplied as the target. Its described design, stripped of
+the marketing:
+
+- Five markets, three strategies. Mean reversion on 15m for the equity indices,
+  momentum breakout on 1h for Bitcoin, trend following on 4h for gold and oil.
+- A hard 1% stop on every trade.
+- Position size adjusted to volatility so that risk stays constant.
+- A correlation filter: with two risk-on positions already open, do not open a
+  third.
+- Two scheduled messages a day, markets in the morning and portfolio at night.
+
+**What is worth taking:** all of the above. It is a coherent risk architecture
+and it maps almost exactly onto the nine-item list, which suggests the list was
+written from this video.
+
+**What is not:** the headline income figure, which carries no statement, no
+equity curve and no date range, and sits in front of a comment-for-the-guide
+call to action. Treat it as the hook it is.
+
+**One factual problem worth knowing before choosing a broker:** the claim that
+this trades continuously across all five markets does not hold for a US retail
+account. Bitcoin is continuous. The index and commodity exposures are not: as
+ETFs they trade session hours, as futures roughly 23/5 with a futures broker,
+and as CFDs they would be near-continuous but CFDs are barred to US retail.
+
+**The good news:** the AI in that design writes the strategy code and the daily
+summaries. It does not choose the trades. That is the boundary this project
+already enforces, so there is nothing to reconcile.
+
+**The ambiguity to resolve:** "hard 1% stop" and "sizing adjusted by volatility
+so risk stays constant" only cohere if the 1% is *risk per trade* and the stop
+*distance* comes from volatility. A stop pinned literally 1% from entry makes
+risk-based sizing produce a constant fraction of equity, leaving nothing for
+volatility to adjust. Both are implemented and configurable; risk-per-trade
+with an ATR-derived stop is the default because it is the reading that works.
+
+### What it changes architecturally
+
+The runner today handles one symbol, one strategy, and one position holding all
+available cash. The reference design needs several symbols, a strategy assigned
+per symbol, one pool of equity across all of them, and an exposure rule that
+reasons about positions together.
+
+That has to come first, because sizing and limits written against a
+single-position engine get thrown away.
+
 ## Wave one: the safety rails
 
 Everything here is deterministic, testable without a network, and applies
