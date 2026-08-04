@@ -47,19 +47,44 @@ INTERVALS = {
     "1h": ("1h", "730d"), "1d": ("1d", "5y"), "1wk": ("1wk", "10y"),
 }
 
+# Timeframes the feed does not serve, built by aggregating one it does. The
+# reference design's 4h commodity leg is the reason this exists, and dropping
+# to daily instead was a worse answer that changed the system materially.
+#
+# Aggregating is not a compromise here. A 4h bar built from four 1h bars is the
+# same bar the exchange would have printed: first open, last close, extreme
+# high and low. The one thing to get right is dropping the trailing partial
+# group, which resample() already does.
+DERIVED = {"2h": ("1h", 2), "4h": ("1h", 4), "8h": ("1h", 8), "12h": ("1h", 12)}
+
 TIMEOUT = 30
 
 
 def supported(timeframe: str) -> bool:
-    return timeframe in INTERVALS
+    return timeframe in INTERVALS or timeframe in DERIVED
 
 
 def fetch(symbol: str, *, timeframe: str = "1d", limit: int = 1000) -> Universe:
     """Bars for one symbol. Raises ValueError with something a person can act on."""
+    if timeframe in DERIVED:
+        base, factor = DERIVED[timeframe]
+        from .timeframes import resample
+
+        universe = fetch(symbol, timeframe=base, limit=limit * factor)
+        aggregated = resample(universe.bars, factor)
+        universe.bars = aggregated[-limit:]
+        universe.timeframe = timeframe
+        universe.notes.append(
+            f"Built from {factor} x {base} bars. The feed does not serve "
+            f"{timeframe} directly."
+        )
+        return universe
+
     if timeframe not in INTERVALS:
         raise ValueError(
-            f"{timeframe} is not available without a paid data feed. "
-            f"Free intervals are {', '.join(sorted(INTERVALS))}."
+            f"{timeframe} is not available on this feed. Free intervals are "
+            f"{', '.join(sorted(INTERVALS))}, plus "
+            f"{', '.join(sorted(DERIVED))} built by aggregating them."
         )
     interval, span = INTERVALS[timeframe]
     url = f"{ENDPOINT.format(symbol=symbol)}?range={span}&interval={interval}"

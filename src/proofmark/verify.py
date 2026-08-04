@@ -99,7 +99,23 @@ def verify(
     )
     fatal = [f for f in verdict.findings if f.severity is Severity.FATAL]
 
-    if fatal:
+    # A run that stopped itself is not a run over this history, and reporting
+    # its return as though it were is the same class of error as omitting costs.
+    # Found the hard way: a system halted 6% in produced zero trades and zero
+    # complaints for the other 94%, and read as rules that never fired.
+    if run.halted_at is not None:
+        share = run.halted_at / max(len(run.equity), 1)
+        findings.insert(0, (
+            f"fatal: stopped itself {share:.0%} of the way through this history "
+            f"and took no further positions. {run.breach.detail if run.breach else ''}"
+        ))
+
+    if run.halted_at is not None:
+        summary = (
+            f"halted {run.halted_at / max(len(run.equity), 1):.0%} in, so this "
+            "measures a system that switched off rather than one that ran"
+        )
+    elif fatal:
         summary = fatal[0].detail
     elif findings:
         summary = f"nothing disqualifying, {len(findings)} thing(s) worth knowing"
@@ -109,13 +125,17 @@ def verify(
     return Verification(
         fingerprint=system.fingerprint,
         at=time.time(),
-        passed=verdict.reportable,
+        # A halted run cannot clear the gate whatever the guards say about the
+        # arithmetic, because the arithmetic describes a stopped system.
+        passed=verdict.reportable and run.halted_at is None,
         summary=summary,
         findings=findings,
         total_return=run.total_return,
         benchmark_return=run.benchmark_return,
         trades=len(run.portfolio.trades),
         bars=len(run.equity),
+        halted_at=run.halted_at,
+        halt_reason=run.breach.detail if run.breach else "",
     ), run
 
 
@@ -173,6 +193,9 @@ def explain(verification: Verification) -> str:
         f"{verification.benchmark_return:+.1%} for buying and holding",
         f"  {verification.summary}",
     ]
+    if verification.halted_at is not None:
+        lines.insert(1, f"  it stopped itself: {verification.halt_reason}")
+
     if verification.findings:
         lines.append("")
         lines += [f"  {f}" for f in verification.findings]

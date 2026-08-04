@@ -111,7 +111,7 @@ def test_builtins_are_available_before_anything_is_saved(tmp_path):
 
 def test_an_edited_system_is_not_reverted_by_the_builtin(tmp_path):
     store = Store(tmp_path)
-    edited = builtin_systems()[1]
+    edited = {s.name: s for s in builtin_systems()}["crypto-three"]
     edited.sizing = Sizing(risk_per_trade=0.005)
     store.save(edited)
     found = {s.name: s for s in store.all()}
@@ -176,3 +176,41 @@ def test_the_gate_is_not_a_wall(tmp_path):
     assert not any("no longer exist" in f for f in fatal), fatal
     # The selection bias is still stated, just not as a disqualification.
     assert any("chosen today" in f for f in verification.findings)
+
+
+def test_a_halted_run_cannot_clear_the_gate_and_says_where_it_stopped():
+    """The bug this catches: a system halted 6% into its history produced zero
+    trades and zero complaints for the other 94%, and read as rules that never
+    fired. Its reported return described a system that had switched itself off."""
+    system = _system(
+        markets=[Market("X", "buy-and-hold", "1h")],
+        sizing=Sizing(mode="fixed_fraction", fraction=1.0, max_position=1.0),
+        limits=Limits(max_drawdown=0.05, daily_loss=None, consecutive_losses=None),
+    )
+    # Calm enough to size, then a long slide that trips the drawdown limit early.
+    closes = [100.0] * 40 + [100.0 - i * 0.7 for i in range(200)]
+    verification, run = verify(system, {"X": _bars(closes, spread=0.4)})
+
+    assert run.halted_at is not None
+    assert verification.passed is False
+    assert "halted" in verification.summary
+    assert verification.halted_at == run.halted_at
+    assert "stopped itself" in verification.findings[0]
+    assert "it stopped itself" in explain(verification)
+
+
+def test_the_engine_says_out_loud_that_a_halt_is_blocking_entries():
+    """Silence here is what made the halt invisible for 94% of a run."""
+    from proofmark.engine import run_portfolio
+
+    closes = [100.0] * 40 + [100.0 - i * 0.7 for i in range(200)]
+    run = run_portfolio(
+        [Market("X", "buy-and-hold", "1h")], {"X": _bars(closes, spread=0.4)},
+        starting_cash=10_000.0,
+        sizing=Sizing(mode="fixed_fraction", fraction=1.0, max_position=1.0),
+        limits=Limits(max_drawdown=0.05, daily_loss=None, consecutive_losses=None),
+    )
+    blocked = [r for _, _, r in run.refusals if "halted" in r]
+    assert blocked, "a halt that blocks entries has to leave a record"
+    # Once per symbol, not once per bar, or the log is nothing but this.
+    assert len(blocked) <= 2

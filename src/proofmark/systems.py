@@ -127,6 +127,17 @@ class Verification:
     trades: int = 0
     bars: int = 0
 
+    # Where the run stopped itself, if it did. A verification that omits this
+    # reports the return of a system that switched off as though it had run.
+    halted_at: int | None = None
+    halt_reason: str = ""
+
+    @property
+    def stopped_early(self) -> bool:
+        """Whether it halted with most of the history still ahead of it."""
+        return (self.halted_at is not None and self.bars > 0
+                and self.halted_at < self.bars * 0.75)
+
     @property
     def beat_holding(self) -> bool:
         return self.total_return > self.benchmark_return
@@ -258,17 +269,40 @@ def builtin_systems() -> list[System]:
                 "Five markets, three approaches: mean reversion on the equity "
                 "indices, momentum on Bitcoin, trend following on the commodities. "
                 "Index and commodity exposure is through ETFs, because a retail "
-                "account cannot hold an index directly. Daily bars, on a free "
-                "public feed that needs no account. The intraday version of this "
-                "needs a paid data provider."
+                "account cannot hold an index directly. Hourly, with the four "
+                "hour commodity bars aggregated from hourly ones, so every leg "
+                "has two years of history for the check to judge."
             ),
             venue="public",
             markets=[
-                Market("SPY", "rsi-dip", "1d", whole_units=True),
-                Market("QQQ", "rsi-dip", "1d", whole_units=True),
-                Market("BTC-USD", "breakout", "1d"),
-                Market("GLD", "ema-cross", "1d", whole_units=True),
-                Market("USO", "ema-cross", "1d", whole_units=True),
+                Market("SPY", "rsi-dip", "1h", whole_units=True),
+                Market("QQQ", "rsi-dip", "1h", whole_units=True),
+                Market("BTC-USD", "breakout", "1h"),
+                Market("GLD", "ema-cross", "4h", whole_units=True),
+                Market("USO", "ema-cross", "4h", whole_units=True),
+            ],
+            sizing=Sizing(mode="risk", risk_per_trade=0.01, atr_multiple=2.0,
+                          max_position=0.25),
+            limits=Limits(daily_loss=0.03, max_drawdown=0.15, consecutive_losses=5,
+                          max_per_group=2, max_positions=5, max_exposure=0.90,
+                          session_offset_hours=-5.0),
+        ),
+        System(
+            name="reference-five-fast",
+            description=(
+                "The reference design at its stated speed: mean reversion on 15 "
+                "minute index bars. Faithful, and only checkable against sixty "
+                "days, which is the most history a free feed will give at this "
+                "resolution. Expect the check to say the sample is too thin, "
+                "because it is."
+            ),
+            venue="public",
+            markets=[
+                Market("SPY", "rsi-dip", "15m", whole_units=True),
+                Market("QQQ", "rsi-dip", "15m", whole_units=True),
+                Market("BTC-USD", "breakout", "1h"),
+                Market("GLD", "ema-cross", "4h", whole_units=True),
+                Market("USO", "ema-cross", "4h", whole_units=True),
             ],
             sizing=Sizing(mode="risk", risk_per_trade=0.01, atr_multiple=2.0,
                           max_position=0.25),

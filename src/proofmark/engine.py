@@ -135,6 +135,7 @@ def run_portfolio(
     session_open_equity: float | None = None
     session_boundary = 0.0
     halted = halt is not None
+    silenced: set[str] = set()
 
     events = _timeline({s: bars[s] for s in by_symbol if s in bars})
 
@@ -246,6 +247,19 @@ def run_portfolio(
             decision = strategy.decide(series[: index + 1])
             if decision.action == "sell" and account.holds(symbol):
                 pending[symbol] = decision
+            elif decision.action == "buy" and not account.holds(symbol) and halted:
+                # Logged, once per symbol, because the silent version was a real
+                # problem: a system halted at 6% of its history went on to
+                # produce zero trades and zero refusals for the other 94%, and
+                # read as rules that simply never fired. The reported return
+                # described a system that had switched itself off.
+                if symbol not in silenced:
+                    silenced.add(symbol)
+                    run.refusals.append((
+                        seconds, symbol,
+                        "halted, so entries are blocked from here on. Everything "
+                        "after this point is a stopped system, not a running one.",
+                    ))
             elif decision.action == "buy" and not account.holds(symbol) and not halted:
                 stop = stop_price(series[: index + 1], sizing)
                 refusal = blocked_reason(symbol, account, last_close, limits)
