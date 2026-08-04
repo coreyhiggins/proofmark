@@ -133,9 +133,7 @@ def fetch_history(
     exists to catch, arriving through the back door.
     """
     if fetch is None:
-        from .data import fetch_ohlcv
-
-        fetch = fetch_ohlcv
+        fetch = _fetch_for(system.venue)
 
     out: dict[str, list[dict]] = {}
     for market in system.markets:
@@ -144,6 +142,21 @@ def fetch_history(
         bars = list(universe.bars)
         out[market.symbol] = bars[:-1] if bars else []
     return out
+
+
+def _fetch_for(venue: str):
+    """Pick the fetcher for a venue, matching the signature the callers use."""
+    if venue == "public":
+        from .public_data import fetch as public_fetch
+
+        def adapter(_venue, symbol, *, timeframe="1d", limit=1000):
+            return public_fetch(symbol, timeframe=timeframe, limit=limit)
+
+        return adapter
+
+    from .data import fetch_ohlcv
+
+    return fetch_ohlcv
 
 
 def explain(verification: Verification) -> str:

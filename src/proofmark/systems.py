@@ -258,15 +258,17 @@ def builtin_systems() -> list[System]:
                 "Five markets, three approaches: mean reversion on the equity "
                 "indices, momentum on Bitcoin, trend following on the commodities. "
                 "Index and commodity exposure is through ETFs, because a retail "
-                "account cannot hold an index directly."
+                "account cannot hold an index directly. Daily bars, on a free "
+                "public feed that needs no account. The intraday version of this "
+                "needs a paid data provider."
             ),
-            venue="alpaca",
+            venue="public",
             markets=[
-                Market("SPY", "rsi-dip", "15m", whole_units=True),
-                Market("QQQ", "rsi-dip", "15m", whole_units=True),
-                Market("BTC/USD", "breakout", "1h"),
-                Market("GLD", "ema-cross", "4h", whole_units=True),
-                Market("USO", "ema-cross", "4h", whole_units=True),
+                Market("SPY", "rsi-dip", "1d", whole_units=True),
+                Market("QQQ", "rsi-dip", "1d", whole_units=True),
+                Market("BTC-USD", "breakout", "1d"),
+                Market("GLD", "ema-cross", "1d", whole_units=True),
+                Market("USO", "ema-cross", "1d", whole_units=True),
             ],
             sizing=Sizing(mode="risk", risk_per_trade=0.01, atr_multiple=2.0,
                           max_position=0.25),
@@ -307,5 +309,15 @@ def requirements(system: System) -> list[str]:
             "Alpaca's free market data is IEX only, which sees a small fraction "
             "of national volume. A backtest on it is not a backtest on what "
             "actually traded."
+        )
+    if system.venue == "public":
+        # Not a blocker, and it should still be on the screen. Free data that
+        # nobody warns you about is how a number gets trusted further than it
+        # deserves.
+        missing.append(
+            "Prices come from a free public endpoint with no account behind it. "
+            "It can change or refuse without notice, and it is not a data "
+            "licence. Replace it with a real provider before trusting a number "
+            "from it with money."
         )
     return missing

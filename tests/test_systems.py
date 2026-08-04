@@ -118,12 +118,13 @@ def test_an_edited_system_is_not_reverted_by_the_builtin(tmp_path):
     assert found["crypto-three"].sizing.risk_per_trade == 0.005
 
 
-def test_the_reference_system_says_what_it_needs_before_it_can_run():
+def test_the_free_feed_states_its_own_limits_on_every_verdict():
+    """Free data that nobody warns you about is how a number gets trusted
+    further than it deserves. This is not a blocker, and it is still on screen."""
     five = {s.name: s for s in builtin_systems()}["reference-five"]
     missing = requirements(five)
-    # The IEX caveat is stated whether or not keys are present, because it is a
-    # property of the data rather than of the setup.
-    assert any("IEX" in m for m in missing)
+    assert any("free public endpoint" in m for m in missing)
+    assert any("not a data licence" in m for m in missing)
 
 
 def test_the_crypto_system_needs_nothing():
