@@ -238,6 +238,38 @@ def _when(stamp: float) -> str:
     return time.strftime("%b %d %H:%M", moment)
 
 
+def _headline(state) -> str:
+    """How it is doing, in one sentence a person can read without a legend.
+
+    Four equally-sized number tiles is the shape of a dashboard that has not
+    decided what matters. The question somebody opens this app to answer is
+    whether the thing is working, and the answer to that is a sentence, not a
+    grid. The numbers stay underneath it as support.
+    """
+    if len(state.equity) < 2 or not state.equity[0]:
+        return "It has not traded long enough to say anything yet."
+
+    total = state.equity[-1] / state.equity[0] - 1
+    direction = "up" if total >= 0 else "down"
+    sentence = f"{direction.capitalize()} {abs(total):.1%} since it started."
+
+    if len(state.benchmark) >= 2 and state.benchmark[0]:
+        held = state.benchmark[-1] / state.benchmark[0] - 1
+        if total > held:
+            sentence += (
+                f" Buying the same things and doing nothing would have been "
+                f"{'up' if held >= 0 else 'down'} {abs(held):.1%}, so it is "
+                f"{total - held:.1%} ahead."
+            )
+        else:
+            sentence += (
+                f" Buying the same things and doing nothing would have been "
+                f"{'up' if held >= 0 else 'down'} {abs(held):.1%}, so it is "
+                f"{held - total:.1%} behind."
+            )
+    return sentence
+
+
 def _live_summary(state) -> list[list[str]]:
     """The four numbers worth putting above the charts.
 
@@ -355,6 +387,7 @@ def _live_payload(path: str | None) -> dict[str, Any]:
         "stale": state.stale,
         "label": state.label,
         "strategy": state.strategy,
+        "headline": _headline(state),
         "alerts": [list(a) for a in alerts(state)],
         "verdict": verdict_findings,
         "chart": chart,
@@ -523,10 +556,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path in ("/", "/index.html"):
-            self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
-        elif self.path == "/live":
+        # The bot is the front door. It used to open on the paste-your-numbers
+        # checker, which is the library's original purpose and not remotely what
+        # somebody who downloaded a trading bot came for: they landed on a form
+        # asking for an equity curve they do not have yet.
+        if self.path in ("/", "/index.html", "/live"):
             self._send(200, LIVE_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif self.path in ("/check", "/check.html"):
+            self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/state":
             payload = json.dumps(_live_payload(self.state_path)).encode("utf-8")
             self._send(200, payload, "application/json")

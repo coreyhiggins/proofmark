@@ -126,6 +126,14 @@ LIVE_PAGE = """<!doctype html>
   .banner.warn h2 { color:var(--warn); }
   .banner p { color:var(--soft); }
 
+  /* The answer to "is this working", in words, before any number. */
+  .verdictline {
+    margin:.2rem 0 1.5rem; font:1.65rem/1.35 var(--serif); letter-spacing:-.012em;
+    color:var(--ink); max-width:52ch; text-wrap:balance;
+  }
+  .verdictline b { color:var(--brass); font-weight:inherit; }
+  @media (max-width:36rem) { .verdictline { font-size:1.25rem; } }
+
   .figures { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.8rem; }
   .fig { background:var(--raised); border-radius:10px; padding:.85rem .95rem; }
   .fig dt { font:.82rem/1.3 var(--sans); color:var(--soft); margin-bottom:.3rem; }
@@ -217,6 +225,13 @@ LIVE_PAGE = """<!doctype html>
   /* Systems. Each is a card that states what it trades, what it risks, and
      whether it has been checked. The check state is the loudest thing on it. */
   .systems { display:grid; gap:.9rem; }
+  /* Once something is running, choosing what to run is a thing you do rarely.
+     It stays reachable and stops competing with the status board. */
+  #control.tucked { opacity:.72; transition:opacity .2s ease; }
+  #control.tucked:hover, #control.tucked:focus-within { opacity:1; }
+  #control.tucked .card > h2::after {
+    content:" (already running one)"; color:var(--faint); font-weight:400;
+  }
   .system {
     background:var(--raised); border:1px solid var(--line); border-radius:11px;
     padding:1rem 1.1rem;
@@ -264,18 +279,18 @@ LIVE_PAGE = """<!doctype html>
             stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
     <div>
-      <h1>Live</h1>
+      <h1>Proofmark</h1>
       <p id="what">connecting</p>
     </div>
     <nav class="nav">
-      <a href="/">Check a result</a>
-      <span class="here">Watch a live run</span>
+      <span class="here">Your bot</span>
+      <a href="/check">Check a result</a>
     </nav>
   </header>
   <div class="pulse"><span class="dot" id="dot"></span><span id="age">&nbsp;</span></div>
 
-  <div id="control"></div>
   <div id="out" aria-live="polite"></div>
+  <div id="control"></div>
 
   <p class="foot">Nothing on this page places, closes or overrides an order. The
   charts show closed bars only, because the bar still forming has a price that
@@ -323,7 +338,7 @@ function renderControl(c, hasRun) {
   }
 
   if (c.running) {
-    box.innerHTML = halted + '<div class="card"><h2>Paper run in progress</h2>'
+    box.innerHTML = '<div class="card"><h2>Paper run in progress</h2>'
       + '<p class="cap">' + esc(s.symbol || '') + ' ' + esc(s.timeframe || '')
       + ' on ' + esc(s.venue || '') + ', using ' + esc(s.strategy || '')
       + '. Checking for a new closed bar every minute.</p>'
@@ -341,7 +356,7 @@ function renderControl(c, hasRun) {
 
   const systems = c.systems || [];
 
-  box.innerHTML = halted + '<div class="card"><h2>Systems</h2>'
+  box.innerHTML = '<div class="card"><h2>Systems</h2>'
     + '<p class="cap">A system is every market, rule, size and limit written down '
     + 'together. Nothing runs until it has been checked against history.</p>'
     + '<div class="systems">' + systems.map(sys => {
@@ -497,6 +512,7 @@ function render(d) {
   $('age').textContent = d.stale ? 'no heartbeat ' + ago(d.age) : 'updated ' + ago(d.age);
 
   let html = '';
+  $('control').className = 'tucked';
 
   // Anything wrong goes above everything else. A person who opens this page
   // and scrolls past the problem to reach a chart has been failed by it.
@@ -506,6 +522,14 @@ function render(d) {
   (d.verdict || []).forEach(f => {
     html += '<div class="banner bad"><h2>' + esc(f.detail) + '</h2><p>' + esc(f.why) + '</p></div>';
   });
+
+  if (d.headline) {
+    // The sentence carries the verdict; the tiles are support. The clause
+    // about holding is the one people skip, so it is the one in brass.
+    const said = esc(d.headline).replace(
+      /(so it is [^.]+)\./, '<b>$1.</b>');
+    html += '<p class="verdictline">' + said + '</p>';
+  }
 
   if (d.summary && d.summary.length) {
     html += '<div class="card"><dl class="figures">' + d.summary.map(row => {

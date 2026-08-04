@@ -315,8 +315,8 @@ PAGE = """<!doctype html>
          lived at /live and nothing has ever linked to it. A feature you cannot
          navigate to has not shipped. -->
     <nav class="nav">
+      <a href="/">Your bot</a>
       <span class="here">Check a result</span>
-      <a href="/live">Watch a live run</a>
     </nav>
   </header>
 
