@@ -132,6 +132,12 @@ class Verification:
     halted_at: int | None = None
     halt_reason: str = ""
 
+    # Per-window results, so a headline carried by one lucky stretch is visible
+    # rather than averaged away. Each entry is (window, return, benchmark,
+    # trades, halted).
+    windows: list = field(default_factory=list)
+    stability: str = ""
+
     @property
     def stopped_early(self) -> bool:
         """Whether it halted with most of the history still ahead of it."""

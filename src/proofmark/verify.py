@@ -30,6 +30,7 @@ and because the gate needs something to point at when it refuses.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Callable, Mapping, Sequence
 
 from .engine import PortfolioRun, run_portfolio
@@ -38,11 +39,28 @@ from .metrics import summarise
 from .systems import System, Verification
 
 
+@dataclass
+class Segment:
+    """One slice of history, run on its own."""
+
+    index: int
+    bars: int
+    trades: int
+    total_return: float
+    benchmark_return: float
+    halted: bool = False
+
+    @property
+    def beat_holding(self) -> bool:
+        return self.total_return > self.benchmark_return
+
+
 def verify(
     system: System,
     bars: Mapping[str, Sequence[dict]],
     *,
     trials: int | None = None,
+    windows: int = 4,
 ) -> tuple[Verification, PortfolioRun]:
     """Run the system over history and judge it. Returns the verdict and the run."""
     run = run_portfolio(
@@ -58,7 +76,11 @@ def verify(
             summary="not enough history came back to judge anything",
         ), run
 
-    if not run.portfolio.trades:
+    # Closed round trips AND anything still open. Checking only closed trades
+    # reported "took no trades" for a system that had bought and was still
+    # holding, which is the opposite of the truth and would have refused the
+    # simplest system anyone could write.
+    if not run.portfolio.trades and not run.portfolio.holdings:
         # Not a dishonest result, just an empty one, and the guards are built to
         # catch dishonesty rather than inactivity. Clearing a system that never
         # traded would mean the gate opened on no evidence at all.
@@ -110,6 +132,13 @@ def verify(
             f"and took no further positions. {run.breach.detail if run.breach else ''}"
         ))
 
+    slices = segments(system, bars, windows=windows) if windows > 1 else []
+    consistency = stability(slices)
+    if consistency:
+        # A warning rather than a disqualification. One window out of four is a
+        # bad sign and not a lie, and the guards are for lies.
+        findings.append(f"warn: {consistency}")
+
     if run.halted_at is not None:
         summary = (
             f"halted {run.halted_at / max(len(run.equity), 1):.0%} in, so this "
@@ -136,7 +165,122 @@ def verify(
         bars=len(run.equity),
         halted_at=run.halted_at,
         halt_reason=run.breach.detail if run.breach else "",
+        windows=[
+            [s.index, s.total_return, s.benchmark_return, s.trades, s.halted]
+            for s in slices
+        ],
+        stability=consistency or "",
     ), run
+
+
+def split_by_time(
+    bars: Mapping[str, Sequence[dict]], windows: int,
+) -> list[dict[str, list[dict]]]:
+    """Cut every market at the same instants, into ``windows`` contiguous spans.
+
+    By time, not by index. Splitting each symbol's list into equal counts would
+    put a 4-hour commodity's window three months away from a 15-minute index's
+    window with the same number, and the correlation rules would be reasoning
+    across dates that never overlapped.
+    """
+    stamps = [float(b.get("timestamp", 0)) for series in bars.values() for b in series]
+    if not stamps or windows < 2:
+        return [{k: list(v) for k, v in bars.items()}]
+
+    first, last = min(stamps), max(stamps)
+    if last <= first:
+        return [{k: list(v) for k, v in bars.items()}]
+
+    span = (last - first) / windows
+    out: list[dict[str, list[dict]]] = []
+    for i in range(windows):
+        low = first + span * i
+        high = last + 1 if i == windows - 1 else first + span * (i + 1)
+        out.append({
+            symbol: [b for b in series if low <= float(b.get("timestamp", 0)) < high]
+            for symbol, series in bars.items()
+        })
+    return out
+
+
+def segments(
+    system: System,
+    bars: Mapping[str, Sequence[dict]],
+    *,
+    windows: int = 4,
+) -> list[Segment]:
+    """Run the system separately on each slice of history.
+
+    NOT walk-forward in the parameter-fitting sense, and the distinction is
+    worth keeping straight. Classic walk-forward fits on one window and measures
+    on the next, which needs an optimiser to fit something. These systems have
+    fixed rules, so there is nothing to fit and nothing to carry forward.
+
+    What there is instead is a selection: somebody chose these markets, these
+    rules and these settings, all at once, after seeing the whole period. The
+    question that answers is not "do the parameters hold up" but "did this work
+    in more than one stretch, or did a single lucky window carry the headline".
+
+    Each window starts with a fresh account and no halt, so a stop in window one
+    cannot silence window four. That is deliberate: the point is to see each
+    stretch on its own terms.
+    """
+    out: list[Segment] = []
+    for i, slice_ in enumerate(split_by_time(bars, windows), start=1):
+        if sum(len(v) for v in slice_.values()) < 30:
+            continue
+        run = run_portfolio(
+            list(system.markets), slice_,
+            starting_cash=system.starting_cash,
+            sizing=system.sizing, limits=system.limits,
+        )
+        if len(run.equity) < 2:
+            continue
+        out.append(Segment(
+            index=i,
+            bars=len(run.equity),
+            trades=len(run.portfolio.trades),
+            total_return=run.total_return,
+            benchmark_return=run.benchmark_return,
+            halted=run.halted_at is not None,
+        ))
+    return out
+
+
+def stability(windows: Sequence[Segment]) -> str | None:
+    """The one sentence the windows are worth, or None if there are too few.
+
+    Deliberately reports rather than judges. Two winning windows out of four is
+    not a verdict, and inventing a threshold to turn it into one would be the
+    arbitrary-number habit this project exists to complain about.
+    """
+    if len(windows) < 2:
+        return None
+
+    won = [w for w in windows if w.beat_holding]
+    profitable = [w for w in windows if w.total_return > 0]
+    halted = [w for w in windows if w.halted]
+
+    parts = [
+        f"beat holding in {len(won)} of {len(windows)} windows",
+        f"made money in {len(profitable)}",
+    ]
+    if halted:
+        parts.append(f"stopped itself in {len(halted)}")
+
+    sentence = ", ".join(parts) + "."
+    if len(windows) >= 3 and not won:
+        sentence += (
+            " It did not beat holding in a single window, so the headline is "
+            "not a run of bad luck inside a system that works."
+        )
+    elif len(windows) >= 3 and len(won) == 1:
+        sentence += (
+            " A result carried by one window out of several is the shape of "
+            "something fitted to a stretch of history rather than something "
+            "that works."
+        )
+    return sentence
 
 
 def fetch_history(
@@ -195,6 +339,17 @@ def explain(verification: Verification) -> str:
     ]
     if verification.halted_at is not None:
         lines.insert(1, f"  it stopped itself: {verification.halt_reason}")
+
+    if verification.windows:
+        lines += ["", "  window by window"]
+        for index, ret, bench, trades, halted in verification.windows:
+            mark = "  stopped" if halted else ""
+            lines.append(
+                f"    {index}  {ret:+7.1%} against {bench:+7.1%} holding, "
+                f"{trades} trades{mark}"
+            )
+    if verification.stability:
+        lines += ["", f"  {verification.stability}"]
 
     if verification.findings:
         lines.append("")

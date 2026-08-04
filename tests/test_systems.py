@@ -214,3 +214,84 @@ def test_the_engine_says_out_loud_that_a_halt_is_blocking_entries():
     assert blocked, "a halt that blocks entries has to leave a record"
     # Once per symbol, not once per bar, or the log is nothing but this.
     assert len(blocked) <= 2
+
+
+def test_windows_are_cut_by_time_so_every_market_sees_the_same_dates():
+    """By index would put a 4h commodity's window three months from a 15m
+    index's window of the same number, and the correlation rules would be
+    reasoning across dates that never overlapped."""
+    from proofmark.verify import split_by_time
+
+    hour = 3_600_000
+    fast = [{"timestamp": 1_700_000_000_000 + i * hour} for i in range(40)]
+    slow = [{"timestamp": 1_700_000_000_000 + i * 4 * hour} for i in range(10)]
+    parts = split_by_time({"FAST": fast, "SLOW": slow}, 4)
+
+    assert len(parts) == 4
+    for part in parts:
+        stamps = [b["timestamp"] for series in part.values() for b in series]
+        if stamps:
+            # Every symbol in a window sits inside the same time span.
+            assert max(stamps) - min(stamps) <= 40 * hour
+    # Nothing is lost or duplicated.
+    assert sum(len(p["FAST"]) for p in parts) == 40
+    assert sum(len(p["SLOW"]) for p in parts) == 10
+
+
+def test_the_windows_report_rather_than_invent_a_threshold():
+    from proofmark.verify import Segment, stability
+
+    strong = [Segment(i, 100, 5, 0.10, 0.02) for i in range(1, 5)]
+    assert "beat holding in 4 of 4" in stability(strong)
+
+    lucky = [Segment(1, 100, 5, 0.40, 0.02)] + [
+        Segment(i, 100, 5, -0.03, 0.05) for i in range(2, 5)
+    ]
+    sentence = stability(lucky)
+    assert "1 of 4" in sentence
+    assert "fitted to a stretch of history" in sentence
+
+
+def test_one_window_is_not_enough_to_say_anything():
+    from proofmark.verify import Segment, stability
+
+    assert stability([Segment(1, 100, 5, 0.1, 0.0)]) is None
+
+
+def test_a_verification_carries_its_windows(tmp_path):
+    """Built and not wired is the failure this project keeps repeating, so the
+    windows are asserted through the recorded verdict, not the function."""
+    system = _system(markets=[Market("X", "buy-and-hold", "1h")])
+    closes = [100.0] * 40 + [100.0 + i * 0.3 for i in range(300)]
+    verification, _ = verify(system, {"X": _bars(closes, spread=1.2)}, windows=4)
+
+    assert verification.windows, "windows have to reach the recorded verdict"
+    assert verification.stability
+    assert any("beat holding in" in f for f in verification.findings)
+
+    store = Store(tmp_path)
+    store.record(system, verification)
+    assert store.verification(system).windows == verification.windows
+
+
+def test_an_open_position_counts_as_having_traded():
+    """Checking only closed round trips reported 'took no trades' for a system
+    that had bought and was still holding, which would have refused the simplest
+    system anyone could write."""
+    system = _system(markets=[Market("X", "buy-and-hold", "1h")])
+    closes = [100.0] * 40 + [100.0 + i * 0.3 for i in range(60)]
+    verification, run = verify(system, {"X": _bars(closes, spread=1.2)})
+
+    assert run.portfolio.holdings, "fixture must leave a position open"
+    assert not run.portfolio.trades, "fixture must have no closed round trip"
+    assert "no trades" not in verification.summary
+
+
+def test_zero_winning_windows_is_not_described_as_one():
+    from proofmark.verify import Segment, stability
+
+    none_won = [Segment(i, 100, 5, -0.05, 0.03) for i in range(1, 5)]
+    sentence = stability(none_won)
+    assert "0 of 4" in sentence
+    assert "carried by one window" not in sentence
+    assert "not a run of bad luck" in sentence

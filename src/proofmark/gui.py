@@ -174,6 +174,14 @@ def _check_system(state_path: str, name: str) -> dict[str, Any]:
         "beatHolding": verification.beat_holding,
         "trades": verification.trades,
         "bars": verification.bars,
+        "haltedAt": verification.halted_at,
+        "haltReason": verification.halt_reason,
+        "stability": verification.stability,
+        "windows": [
+            {"index": w[0], "ret": f"{w[1]:+.1%}", "bench": f"{w[2]:+.1%}",
+             "trades": w[3], "halted": bool(w[4]), "won": w[1] > w[2]}
+            for w in verification.windows
+        ],
         "chart": equity_chart(run.equity, run.benchmark or None, animate=False),
     }
 
@@ -213,6 +221,7 @@ def _systems_payload(state_path: str | None) -> list[dict[str, Any]]:
                 "benchmarkReturn": f"{verification.benchmark_return:+.1%}",
                 "beatHolding": verification.beat_holding,
                 "trades": verification.trades,
+                "stability": verification.stability,
             },
         })
     return out

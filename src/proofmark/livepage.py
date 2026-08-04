@@ -364,6 +364,7 @@ function renderControl(c, hasRun) {
         + (v ? '<p class="verdict-line ' + (v.passed ? 'pass' : 'fail') + '">'
               + esc(v.summary) + '. Returned ' + esc(v.totalReturn) + ' against '
               + esc(v.benchmarkReturn) + ' for holding, over ' + v.trades + ' trades.'
+              + (v.stability ? ' ' + esc(v.stability) : '')
               + (v.passed && !v.beatHolding
                   ? ' Passing is not the same as being worth running.' : '')
               + '</p>'
@@ -419,7 +420,28 @@ async function runCheck(btn, name) {
         + ' trades and ' + d.bars + ' steps.'
         + (d.passed && !d.beatHolding
             ? ' It passed the checks and still finished behind doing nothing.' : '')
+        + (d.haltedAt !== null && d.haltedAt !== undefined
+            ? ' It stopped itself: ' + esc(d.haltReason) : '')
         + '</p></div>'
+        + (d.windows && d.windows.length
+            ? '<div class="card"><h2>Window by window</h2>'
+              + '<p class="cap">The same system run separately on each slice of '
+              + 'history. A result carried by one lucky stretch shows up here and '
+              + 'nowhere else.</p>'
+              + '<table class="rows"><thead><tr><th>window</th><th class="n">return</th>'
+              + '<th class="n">holding</th><th class="n">trades</th><th></th></tr></thead>'
+              + '<tbody>' + d.windows.map(w =>
+                  '<tr><td>' + w.index + '</td>'
+                  + '<td class="n ' + (w.won ? 'up' : 'down') + '">' + esc(w.ret) + '</td>'
+                  + '<td class="n">' + esc(w.bench) + '</td>'
+                  + '<td class="n">' + w.trades + '</td>'
+                  + '<td>' + (w.halted ? '<span class="flag">stopped</span>' : '') + '</td>'
+                  + '</tr>').join('')
+              + '</tbody></table>'
+              + (d.stability ? '<p class="rule" style="margin-top:.9rem">'
+                  + esc(d.stability) + '</p>' : '')
+              + '</div>'
+            : '')
         + (d.findings.length
             ? '<ol class="notes">' + d.findings.map(f =>
                 '<li><b>' + esc(f) + '</b></li>').join('') + '</ol>'
