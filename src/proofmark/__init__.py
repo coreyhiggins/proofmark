@@ -24,7 +24,7 @@ from .walkforward import WalkForwardResult, format_walk_forward, walk_forward
 # make the zero-dependency promise false in the most annoying way possible.
 # Import it yourself: `from proofmark.data import fetch_ohlcv`.
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "VENUES",

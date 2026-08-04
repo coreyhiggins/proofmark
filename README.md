@@ -263,6 +263,67 @@ there is nothing left to argue about.
 Market data needs `pip install 'proofmark[crypto]'`. The Windows installer
 bundles it.
 
+## A system is a file, and nothing runs until it has been checked
+
+A system is every market, rule, size and limit written down together. Two ship,
+and both work with no account and no API key.
+
+```bash
+proofmark app                    # pick a system, check it, run it
+proofmark serve crypto-three     # no window, for leaving on
+proofmark autostart crypto-three # start it when you log in
+```
+
+**Nothing runs until it has passed a check.** A system carries a fingerprint
+over every value that changes what it decides. Running it over history records
+a verdict against that fingerprint, and going live needs a passing verdict with
+a matching one. Verify a system, widen the stop, and the fingerprint changes,
+so the verification stops applying and the gate closes again.
+
+The check is not one pass over all of history, because that is the number a
+system was chosen to produce. It also runs the system separately on each slice
+and reports every one:
+
+```
+  window by window
+    1    +2.0% against   -0.8% holding, 3 trades
+    2    +0.4% against   +2.8% holding, 0 trades
+    3    +1.2% against   -0.1% holding, 2 trades
+    4    +0.1% against   -1.8% holding, 9 trades
+
+  beat holding in 3 of 4 windows, made money in 4.
+```
+
+It reports rather than judges. Two winning windows out of four is not a verdict,
+and inventing a threshold to make it one would be the arbitrary-number habit
+this project exists to complain about.
+
+### The risk layer
+
+- **Position sizing** by risk per trade, off a stop distance taken from
+  volatility. A quiet market gives a tight stop, so the same 1% buys a larger
+  position. The capital deployed moves; the amount at risk does not. Fixed
+  fraction and fixed notional are there too, with a hard cap above all three.
+- **Daily loss, maximum drawdown and losing streak** limits, each evaluated from
+  the bar the halt was last cleared at rather than the start of the run.
+- **Exposure caps** by declared correlation group, so two index positions block
+  a third risk-on trade. Declared and not estimated: rolling correlations
+  converge on one in the crash where the rule matters most.
+- **A kill switch that is a file.** It survives a restart, it works with the app
+  closed, and anything on the machine can pull it.
+- **Halted means no new entries, and exits always run.** A halt that blocks
+  everything traps you in the position that caused it.
+
+### The log and the alerts
+
+An append-only JSONL file, one object per line, never rewritten. The live loop
+replays the whole history every poll, so every event carries a stable identity
+and the journal reads back what is on disk at startup. Two identical cycles
+leave the log the same length.
+
+Alerts go to a Discord webhook and a desktop notification, both optional and
+neither fatal. A webhook that times out must not stop a trading loop.
+
 ## Walk-forward is the primary verb
 
 ```python
@@ -369,10 +430,13 @@ decides a trade, and the rules that do are deterministic and testable.
 
 ## Status
 
-Early. The core is the guards, the metrics and the lookahead detector, which
-are the parts with a real gap. Walk-forward, the live paper engine and the
-comparison table are in. Live execution against a real account is not, and
-will not be until the paper path has been boring for a long time.
+Usable. The guards, the metrics, the lookahead detector, the multi-market
+paper engine, the risk layer, the verification gate, the log and the alerts are
+all in and tested.
+
+Live execution against a real account is not, and will not be until the paper
+path has been boring for a long time. Nothing here holds a key that can place
+an order, and there is no setting that changes that.
 
 ## License
 

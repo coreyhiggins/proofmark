@@ -79,3 +79,45 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.binary }}
           if-no-files-found: error
+
+  publish:
+    # The build matrix produced three binaries and left them as artifacts, which
+    # is where they stayed. Nothing attached them to a release, so cutting a tag
+    # made three files that only someone browsing the Actions tab could find.
+    needs: desktop
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Named per platform, because three files called "proofmark" in one
+      # downloads folder is a puzzle rather than a release.
+      - name: name the binaries after their platform
+        run: |
+          mkdir -p release
+          cp artifacts/proofmark-windows/proofmark.exe release/proofmark-windows.exe
+          cp artifacts/proofmark-macos/proofmark      release/proofmark-macos
+          cp artifacts/proofmark-linux/proofmark      release/proofmark-linux
+          chmod +x release/proofmark-macos release/proofmark-linux
+          ls -lh release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            **Windows: download `proofmark-windows.exe` and double-click it.**
+
+            These binaries are not code-signed. Windows SmartScreen will warn,
+            and macOS will refuse to open the file until you right-click and
+            choose Open. Signing costs money per platform per year, and saying
+            so is better than a warning nobody warned you about.
+
+            Paper trading only. No key that can place an order is used anywhere
+            in this program, and there is no setting that changes that.
