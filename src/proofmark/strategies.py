@@ -29,6 +29,12 @@ class Signal:
     action: str  # "buy", "sell" or "hold"
     reason: str
 
+    # Filled in by the engine, not by the strategy. Where the stop goes is a
+    # risk decision measured from volatility, and letting each rule set invent
+    # its own would mean the sizing policy could not be trusted to mean the
+    # same thing across markets.
+    stop: float | None = None
+
 
 @dataclass(frozen=True)
 class Strategy:
@@ -129,14 +135,21 @@ def _breakout(bars: Sequence[dict], lookback: int = 20) -> Signal:
 
 
 def _hold(bars: Sequence[dict]) -> Signal:
-    """Buy once, then never act again.
+    """Be in the market. The engine refuses the duplicate, so it buys once.
 
-    Included as a runnable strategy rather than only a dashed line, so that a
-    person can point the same engine, the same fees and the same fill rule at
-    doing nothing. When the clever rules lose to this, they lose to it under
-    identical conditions and there is nothing left to argue about.
+    Included as a runnable strategy rather than only a dashed line, so a person
+    can point the same engine, the same fees and the same fill rule at doing
+    nothing. When the clever rules lose to this, they lose under identical
+    conditions and there is nothing left to argue about.
+
+    It signals on EVERY bar rather than only the first. The first-bar-only
+    version looked equivalent and was not: the engine cannot size a position
+    before it has enough history to measure volatility, so the single early
+    signal was refused every time and this strategy never once entered the
+    market. A rule that fires only in a window where entries are impossible is
+    a rule that does nothing at all.
     """
-    return Signal("buy", "bought once and stopped") if len(bars) == 1 else HOLD
+    return Signal("buy", "in the market and staying there")
 
 
 BUILTIN: dict[str, Strategy] = {
