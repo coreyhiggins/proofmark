@@ -317,7 +317,7 @@ let controlKey = null;
 let lastCheck = null;
 
 function renderControl(c, hasRun) {
-  const key = JSON.stringify([c.running, c.canStart, c.error, hasRun,
+  const key = JSON.stringify([c.running, c.canStart, c.error, hasRun, c.writer,
                               c.halt, (c.systems || []).map(x => [x.name, x.cleared, x.verified])]);
   if (key === controlKey) return;
   controlKey = key;
@@ -393,10 +393,41 @@ function renderControl(c, hasRun) {
     + '<p class="hint">Fees and slippage come off both sides of every fill. '
     + 'Decisions are made on a closed bar and filled at the next bar\\'s open, so '
     + 'nothing trades on a price it has already seen.</p>'
-    + '<div id="checkOut"></div><p class="err" id="startErr" hidden></p></div>';
+    + '<div id="checkOut"></div><p class="err" id="startErr" hidden></p></div>'
+    + '<div class="card"><h2>Describe your own strategy</h2>'
+    + '<p class="cap">Say how you trade, in your own words. It tells you which '
+    + 'of the built-in rules is closest, so you know what to edit. It never '
+    + 'writes a system by itself, and it never says whether an idea is good.</p>'
+    + '<textarea id="describe" style="min-height:6rem" placeholder="I buy when '
+    + 'something has dropped hard and looks oversold, then sell once it has '
+    + 'recovered. Mostly on the hourly chart."></textarea>'
+    + '<div class="actions"><button class="ghost" id="match">Find the closest rules</button></div>'
+    + (c.writer
+        ? '<p class="hint">Using ' + esc(c.writer) + ', running on this machine.</p>'
+        : '<p class="hint">No local model is installed, so this one cannot answer. '
+          + 'Install Ollama and run <code>ollama pull llama3.2:3b</code> if you want '
+          + 'it. Everything else works without it.</p>')
+    + '<div id="matched"></div></div>';
 
   if (lastCheck) $('checkOut').innerHTML = lastCheck;
   wireResume();
+  const match = $('match');
+  if (match) match.onclick = async () => {
+    const out = $('matched'), text = $('describe').value.trim();
+    if (!text) { out.innerHTML = '<p class="err">Describe it first.</p>'; return; }
+    match.disabled = true;
+    out.innerHTML = '<p class="empty" style="margin-top:.9rem">Reading it.</p>';
+    try {
+      const d = await (await fetch('/describe', {method: 'POST',
+        body: JSON.stringify({text})})).json();
+      out.innerHTML = '<p class="lesson" style="white-space:pre-wrap">' + esc(d.text) + '</p>'
+        + (d.credit ? '<p class="hint">' + esc(d.credit) + '</p>' : '');
+    } catch (e) {
+      out.innerHTML = '<p class="err">Could not reach the local server.</p>';
+    }
+    match.disabled = false;
+  };
+
   box.querySelectorAll('[data-check]').forEach(btn => {
     btn.onclick = () => runCheck(btn, btn.getAttribute('data-check'));
   });

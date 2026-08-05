@@ -12,14 +12,23 @@
 #   3. Adds that folder to YOUR PATH, not the machine's.
 #   4. Adds a Start Menu shortcut.
 #
-# It never asks for administrator, never touches Program Files, never edits the
-# machine-wide registry, and installs nothing else. Uninstalling is deleting
-# one folder, and this prints exactly how.
+# It never asks for administrator, never touches Program Files, and never edits
+# the machine-wide registry. Uninstalling is deleting one folder, and this
+# prints exactly how.
+#
+# It installs nothing else UNLESS you say yes to one question at the end. That
+# question offers Ollama and a 2GB language model, which lets proofmark write
+# its daily summaries in English instead of a template. It is off by default,
+# it is a separate download, and declining changes nothing about the program.
 
 [CmdletBinding()]
 param(
     [switch]$Uninstall,
-    [string]$Repo = "coreyhiggins/proofmark"
+    [string]$Repo = "coreyhiggins/proofmark",
+    # Answers the model question without a prompt, for anyone scripting this.
+    [switch]$WithModel,
+    [switch]$NoModel,
+    [string]$Model = "llama3.2:3b"
 )
 
 $ErrorActionPreference = "Stop"
@@ -104,6 +113,61 @@ try {
     Write-Step "could not create the Start Menu shortcut, which is not fatal"
 }
 
+# ------------------------------------------------- the optional writer ----
+#
+# Opt in, never opt out. Somebody who opened a program to watch a trading bot
+# did not come here to download a language model, and a several-GB pull that
+# starts because they pressed enter too fast is a bad way to meet a tool.
+#
+# Everything works without it. The daily summaries are written from a template
+# instead, and the program says which it used rather than hiding the
+# difference.
+
+function Install-Writer($modelName) {
+    $ollama = (Get-Command ollama -ErrorAction SilentlyContinue)
+    if (-not $ollama) {
+        $winget = (Get-Command winget -ErrorAction SilentlyContinue)
+        if (-not $winget) {
+            Write-Step "winget is not available, so Ollama cannot be installed automatically."
+            Write-Step "Get it from https://ollama.com and then run: ollama pull $modelName"
+            return
+        }
+        Write-Step "installing Ollama"
+        winget install --id Ollama.Ollama --accept-source-agreements --accept-package-agreements --silent
+        $env:Path = [Environment]::GetEnvironmentVariable("Path", "User") + ";" +
+                    [Environment]::GetEnvironmentVariable("Path", "Machine")
+    }
+
+    if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+        Write-Step "Ollama did not land on PATH. Open a new terminal and run: ollama pull $modelName"
+        return
+    }
+
+    Write-Step "downloading $modelName, which is about 2GB and only happens once"
+    ollama pull $modelName
+    if ($LASTEXITCODE -eq 0) {
+        Write-Step "done. proofmark will find it on its own, with nothing to configure."
+    } else {
+        Write-Step "the download did not finish. Run 'ollama pull $modelName' whenever you like."
+    }
+}
+
+$wantsModel = $false
+if ($WithModel) {
+    $wantsModel = $true
+} elseif (-not $NoModel) {
+    Write-Host ""
+    Write-Host "  Optional: proofmark can write its daily summaries in plain English"
+    Write-Host "  instead of a template. That needs a language model running on this"
+    Write-Host "  machine: about 2GB, downloaded once, free, and nothing is sent"
+    Write-Host "  anywhere. Everything works without it."
+    Write-Host ""
+    $answer = Read-Host "  Download it? (y/N)"
+    $wantsModel = ($answer -match "^(y|yes)$")
+}
+
+if ($wantsModel) { Install-Writer $Model }
+
 Write-Host @"
 
   Installed.
@@ -119,5 +183,8 @@ Write-Host @"
 
   To update later:   proofmark update
   To remove it:      powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
+
+  If you skipped the optional writer and change your mind, install Ollama from
+  https://ollama.com and run:  ollama pull llama3.2:3b
 
 "@

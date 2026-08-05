@@ -137,6 +137,13 @@ def _compare(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _writer() -> str:
+    """Which local model is available, if any. Empty means templates."""
+    from .assistant import available
+
+    return available()
+
+
 def _check_system(state_path: str, name: str) -> dict[str, Any]:
     """Run a system over history and record the verdict against its fingerprint.
 
@@ -338,6 +345,7 @@ def _live_payload(path: str | None) -> dict[str, Any]:
         "settings": SESSION.settings,
         "error": SESSION.error,
         "systems": _systems_payload(path),
+        "writer": _writer(),
         "halt": None if halt is None else {
             "reason": halt.reason, "code": halt.code, "manual": halt.manual,
         },
@@ -585,6 +593,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:  # noqa: N802
+        if self.path == "/describe":
+            length = min(int(self.headers.get("Content-Length") or 0), 64 * 1024)
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except ValueError:
+                body = {}
+
+            from .assistant import draft_system
+
+            reply = draft_system(str(body.get("text") or "")[:4000])
+            self._send(200, json.dumps({
+                "text": reply.text, "credit": reply.credit,
+            }).encode("utf-8"), "application/json")
+            return
+
         if self.path in ("/run", "/stop", "/start-system", "/check-system", "/resume"):
             self._control()
             return
