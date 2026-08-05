@@ -1,6 +1,6 @@
 [project]
 name = "proofmark"
-version = "0.3.1"
+version = "0.3.2"
 description = "A backtest engine whose defaults make self-deception expensive."
 readme = "README.md"
 requires-python = ">=3.10"
