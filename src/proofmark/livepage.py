@@ -63,7 +63,19 @@ LIVE_PAGE = """<!doctype html>
      width IS the chart's font size: at 47rem the axis labels rendered around
      11px and were genuinely hard to read on a large monitor. Prose gets its
      own narrower cap below, so it does not become unreadable the other way. */
-  .wrap { max-width:68rem; margin:0 auto; padding:2.4rem 1.5rem 5rem; }
+  .wrap {
+    max-width:68rem; margin:0 auto; padding:2.4rem 1.5rem 5rem;
+    display:flex; flex-direction:column;
+  }
+  /* A bot that stopped reporting two days ago is history, and the thing a
+     person needs is the way to start another one. Hoisting by order rather
+     than moving nodes, so nothing re-renders and no scroll position jumps. */
+  /* The masthead and heartbeat stay pinned above everything, or hoisting the
+     controls pushes them above the product's own name. */
+  .wrap > .top { order:-3; }
+  .wrap > .pulse { order:-2; }
+  .wrap.needs-start #control { order:-1; }
+  .wrap.needs-start #control.tucked { opacity:1; }
   .card p.cap, .card .empty, .foot, .hint { max-width:56ch; }
 
   .top { display:flex; align-items:center; gap:.8rem; margin-bottom:1.6rem; }
@@ -131,7 +143,11 @@ LIVE_PAGE = """<!doctype html>
     margin:.2rem 0 1.5rem; font:1.65rem/1.35 var(--serif); letter-spacing:-.012em;
     color:var(--ink); max-width:52ch; text-wrap:balance;
   }
-  .verdictline b { color:var(--brass); font-weight:inherit; }
+  .verdictline b { font-weight:inherit; }
+  .verdictline b.ahead { color:var(--pass); }
+  .verdictline b.behind { color:var(--fail); }
+  /* Stale means these numbers are a photograph, so the whole line steps back. */
+  .verdictline.old { color:var(--soft); }
   @media (max-width:36rem) { .verdictline { font-size:1.25rem; } }
 
   .figures { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.8rem; }
@@ -543,7 +559,11 @@ function render(d) {
   $('age').textContent = d.stale ? 'no heartbeat ' + ago(d.age) : 'updated ' + ago(d.age);
 
   let html = '';
-  $('control').className = 'tucked';
+  // Tucked means "you already have one going", so it has to follow whether a
+  // run is actually going. Driving it off the presence of output put the label
+  // "already running one" directly under a header reading "no heartbeat".
+  const live = !!(d.control && d.control.running) && !d.stale;
+  $('control').className = live ? 'tucked' : '';
 
   // Anything wrong goes above everything else. A person who opens this page
   // and scrolls past the problem to reach a chart has been failed by it.
@@ -557,9 +577,11 @@ function render(d) {
   if (d.headline) {
     // The sentence carries the verdict; the tiles are support. The clause
     // about holding is the one people skip, so it is the one in brass.
-    const said = esc(d.headline).replace(
-      /(so it is [^.]+)\./, '<b>$1.</b>');
-    html += '<p class="verdictline">' + said + '</p>';
+    const ahead = / ahead\.?$/.test(d.headline.trim());
+    document.querySelector('.wrap').classList.toggle('needs-start', !!d.stale);
+  const said = esc(d.headline).replace(
+      /(so it is [^.]+)\./, '<b class="' + (ahead ? 'ahead' : 'behind') + '">$1.</b>');
+    html += '<p class="verdictline' + (d.stale ? ' old' : '') + '">' + said + '</p>';
   }
 
   if (d.summary && d.summary.length) {

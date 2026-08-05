@@ -272,7 +272,16 @@ def _headline(state) -> str:
 
     total = state.equity[-1] / state.equity[0] - 1
     direction = "up" if total >= 0 else "down"
-    sentence = f"{direction.capitalize()} {abs(total):.1%} since it started."
+
+    # Tense matters. A bot that stopped two days ago still has numbers, and
+    # printing them in the present tense says they are true now. They are a
+    # photograph of something that is no longer happening.
+    if state.stale:
+        hours = state.age / 3600
+        when = f"{hours:.0f} hours ago" if hours >= 1 else f"{state.age / 60:.0f} minutes ago"
+        sentence = f"As of {when}, when it last reported: {direction} {abs(total):.1%}."
+    else:
+        sentence = f"{direction.capitalize()} {abs(total):.1%} since it started."
 
     if len(state.benchmark) >= 2 and state.benchmark[0]:
         held = state.benchmark[-1] / state.benchmark[0] - 1
