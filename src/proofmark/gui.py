@@ -164,9 +164,23 @@ def _check_system(state_path: str, name: str) -> dict[str, Any]:
     verification, run = verify(system, bars)
     store.record(system, verification)
 
+    # A refused system is the moment somebody most needs the verdict in their
+    # own words, so this is where the local model earns its place. No model
+    # means the verdict as written, which was already plain English.
+    from .assistant import explain_refusal
+
+    plain = ""
+    credit = ""
+    if not verification.passed:
+        written = explain_refusal(verification.summary, verification.findings)
+        if written.written_by_model:
+            plain, credit = written.text, written.credit
+
     return {
         "passed": verification.passed,
         "summary": verification.summary,
+        "plain": plain,
+        "credit": credit,
         "findings": verification.findings,
         "explanation": explain(verification),
         "totalReturn": f"{verification.total_return:+.1%}",

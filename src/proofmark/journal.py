@@ -287,3 +287,72 @@ def digest(run, system_name: str, *, morning: bool) -> tuple[str, str]:
     if gap < 0:
         lines.append("Behind buying and holding over this run.")
     return title, "\n".join(lines)
+
+
+# ----------------------------------------------------------- the schedule --
+
+# Local hours. Morning is early enough to read before a session, evening late
+# enough that the day is done. Overridable because "morning" is a preference,
+# not a fact.
+MORNING_HOUR = int(os.environ.get("PROOFMARK_MORNING_HOUR", "8"))
+EVENING_HOUR = int(os.environ.get("PROOFMARK_EVENING_HOUR", "20"))
+
+
+def due_digests(home: Path, *, now: float | None = None) -> list[bool]:
+    """Which digests are owed, as ``morning`` flags, marking them sent.
+
+    Records the date each slot last went out, so a loop polling every minute
+    sends one message rather than fourteen hundred. The record is written
+    before the message is sent: a digest that goes missing because the webhook
+    was down is better than one that arrives every minute until it succeeds.
+    """
+    now = time.time() if now is None else now
+    stamp = time.localtime(now)
+    today = f"{stamp.tm_year}-{stamp.tm_yday}"
+    path = Path(home) / "digests.json"
+
+    try:
+        sent = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        sent = {}
+    if not isinstance(sent, dict):
+        sent = {}
+
+    owed: list[bool] = []
+    for morning, hour in ((True, MORNING_HOUR), (False, EVENING_HOUR)):
+        slot = "morning" if morning else "evening"
+        if stamp.tm_hour >= hour and sent.get(slot) != today:
+            sent[slot] = today
+            owed.append(morning)
+
+    if owed:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            path.write_text(json.dumps(sent), encoding="utf-8")
+        except OSError:
+            return []
+    return owed
+
+
+def send_digests(run, system_name: str, home: Path, *, webhook: str = "",
+                 now: float | None = None) -> list[str]:
+    """Send whichever daily messages are owed. Returns their titles.
+
+    The local model rewrites the template when there is one. When there is not,
+    the template goes out unchanged, which is the normal case and not a
+    degraded one.
+    """
+    from .assistant import rewrite_digest
+
+    sent: list[str] = []
+    for morning in due_digests(home, now=now):
+        title, body = digest(run, system_name, morning=morning)
+        written = rewrite_digest(title, body)
+        text = written.text
+        if written.written_by_model:
+            text += "\n\n" + written.credit
+        if webhook:
+            notify_discord(webhook, title, text)
+        notify_desktop(title, text)
+        sent.append(title)
+    return sent

@@ -168,3 +168,48 @@ def test_the_evening_digest_says_when_it_is_behind_holding():
     _, body = digest(run, "test", morning=False)
     if run.total_return < run.benchmark_return:
         assert "Behind buying and holding" in body
+
+
+# ------------------------------------------------------------ scheduling --
+
+def test_a_digest_goes_out_once_a_day_not_once_a_minute(tmp_path):
+    """The loop polls every minute. Without a record of what was sent, the two
+    daily messages become fourteen hundred daily messages."""
+    import time as _t
+    from proofmark.journal import due_digests
+
+    noon = _t.mktime((2026, 8, 4, 12, 0, 0, 0, 0, -1))
+    assert due_digests(tmp_path, now=noon) == [True]      # morning is owed
+    assert due_digests(tmp_path, now=noon + 60) == []     # a minute later, no
+    assert due_digests(tmp_path, now=noon + 3600) == []
+
+    night = _t.mktime((2026, 8, 4, 21, 0, 0, 0, 0, -1))
+    assert due_digests(tmp_path, now=night) == [False]    # evening is owed
+    assert due_digests(tmp_path, now=night + 60) == []
+
+    tomorrow = _t.mktime((2026, 8, 5, 9, 0, 0, 0, 0, -1))
+    assert due_digests(tmp_path, now=tomorrow) == [True]  # a new day, again
+
+
+def test_nothing_is_owed_before_the_morning_hour(tmp_path):
+    import time as _t
+    from proofmark.journal import due_digests
+
+    dawn = _t.mktime((2026, 8, 4, 5, 0, 0, 0, 0, -1))
+    assert due_digests(tmp_path, now=dawn) == []
+
+
+def test_the_digests_actually_reach_the_send_path(tmp_path, monkeypatch):
+    """digest() was written, tested, and called by nothing at all. This asserts
+    the wiring rather than the function."""
+    import time as _t
+    from proofmark import journal
+
+    posted = []
+    monkeypatch.setattr(journal, "notify_desktop", lambda t, m: posted.append(t) or True)
+    monkeypatch.setattr(journal, "notify_discord", lambda w, t, m: True)
+
+    noon = _t.mktime((2026, 8, 4, 12, 0, 0, 0, 0, -1))
+    titles = journal.send_digests(_run(), "test", tmp_path, now=noon)
+    assert titles and "what is open" in titles[0]
+    assert posted == titles

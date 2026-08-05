@@ -324,13 +324,18 @@ def run_system_once(system, state_path: str | Path, *, store=None) -> object:
     # Written after the state file, so a crash between the two loses a log line
     # rather than the display. Deduplicated by the journal, because the loop
     # re-derives the whole history on every poll.
-    from .journal import Journal, announce, events_from_run
+    from .journal import Journal, announce, events_from_run, send_digests
 
     home = Path(state_path).parent
+    webhook = _webhook(home)
     journal = Journal(home / "log" / f"{system.name}.jsonl")
     fresh = journal.write(events_from_run(run, system.name))
     if fresh:
-        announce(fresh, webhook=_webhook(home), desktop=True)
+        announce(fresh, webhook=webhook, desktop=True)
+
+    # The two daily messages. due_digests owns the once-a-day part, so calling
+    # this every cycle is correct and cheap.
+    send_digests(run, system.name, home, webhook=webhook)
     return run
 
 
